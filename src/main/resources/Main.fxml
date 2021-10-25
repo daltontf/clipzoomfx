@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.control.*?>
+<?import javafx.scene.image.ImageView?>
+<?import javafx.scene.layout.*?>
+<?import org.controlsfx.control.RangeSlider?>
+<VBox xmlns:fx="http://javafx.com/fxml" fx:controller="org.daltontf1212.MainController">
+    <MenuBar fx:id="menuBar">
+        <Menu text="File">
+            <MenuItem text="Add Video" fx:id="addVideoMenuItem"/>
+        </Menu>
+    </MenuBar>
+    <SplitPane VBox.vgrow="ALWAYS" fx:id="splitPane">
+        <items>
+            <ScrollPane fx:id="treeScrollPane" fitToHeight="true" fitToWidth="true">
+                <TreeView fx:id="treeView"/>
+            </ScrollPane>
+            <VBox fx:id="videoPane">
+                <ImageView VBox.vgrow="ALWAYS" fx:id="videoImageView"/>
+                <StackPane fx:id="bottomPane">
+                <HBox fx:id="bottomBarPlay">
+                    <Button fx:id="playPause"/>
+                    <Slider HBox.hgrow="ALWAYS" fx:id="playSlider"/>
+                    <Button text="Clip" fx:id="clip"/>
+                </HBox>
+                <HBox visible="false" fx:id="bottomBarClip">
+                    <Button fx:id="clipPlayStop"/>
+                    <Button text="|-" fx:id="clipSetStart"/>
+                    <RangeSlider HBox.hgrow="ALWAYS" fx:id="rangeSlider"/>
+                    <Button text="-|" fx:id="clipSetStop"/>
+                    <Button text="Save" fx:id="saveClip"/>
+                    <Button text="Cancel" fx:id="cancelClip"/>
+                </HBox>
+                </StackPane>
+            </VBox>
+        </items>
+    </SplitPane>
+</VBox>
