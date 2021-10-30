@@ -1,17 +1,32 @@
 package org.daltontf1212;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.core.JacksonException;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.DeserializationContext;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.deser.std.StdDeserializer;
+import com.fasterxml.jackson.databind.module.SimpleModule;
 import io.vavr.Lazy;
 import javafx.application.Platform;
 import javafx.beans.property.ObjectProperty;
 import javafx.beans.property.SimpleObjectProperty;
+import javafx.collections.ObservableList;
+import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
 import javafx.geometry.Point2D;
 import javafx.geometry.Rectangle2D;
 import javafx.scene.control.*;
 import javafx.scene.image.ImageView;
+import javafx.scene.input.KeyCode;
+import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
+import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 import org.controlsfx.control.RangeSlider;
@@ -20,20 +35,30 @@ import uk.co.caprica.vlcj.player.base.MediaPlayer;
 import uk.co.caprica.vlcj.player.base.MediaPlayerEventAdapter;
 import uk.co.caprica.vlcj.player.embedded.EmbeddedMediaPlayer;
 
-import java.io.File;
+import java.io.*;
+import java.util.List;
 import java.util.Optional;
 
 import static uk.co.caprica.vlcj.javafx.videosurface.ImageViewVideoSurfaceFactory.videoSurfaceForImageView;
 
 public class MainController {
+    private final static double VIDEO_WIDTH = 1920.0;
+    private final static double VIDEO_HEIGHT = 1080.0;
+
+    public final ImageView PLAY_ICON = new ImageView("play.png");
+    public final ImageView CLIP_PLAY_ICON = new ImageView("play.png");
+    public final ImageView PAUSE_ICON = new ImageView("pause.png");
+    public final ImageView STOP_ICON = new ImageView("stop.png");
+
     private Lazy<FileChooser> lazyFileChooser = Lazy.of(FileChooser::new);
     private final MediaPlayerFactory mediaPlayerFactory;
 
-    @FXML private MenuBar menuBar;
-    @FXML private MenuItem addVideoMenuItem;
-    @FXML private SplitPane splitPane;
-    @FXML private ScrollPane treeScrollPane;
-    @FXML private TreeView<File> treeView;
+    @FXML private MenuItem addVideo;
+    @FXML private MenuItem loadProject;
+    @FXML private MenuItem saveProject;
+    @FXML private MenuItem renderScript;
+    @FXML private ListView<File> files;
+    @FXML private ListView<Clip> clips;
     @FXML private VBox videoPane;
     @FXML private ImageView videoImageView;
     private final EmbeddedMediaPlayer embeddedMediaPlayer;
@@ -41,7 +66,7 @@ public class MainController {
     @FXML private HBox bottomBarPlay;
     @FXML private Button playPause;
     @FXML private Slider playSlider;
-    @FXML private Button clip;
+    @FXML private Button addClip;
 
     @FXML private StackPane bottomPane;
     @FXML private HBox bottomBarClip;
@@ -53,46 +78,192 @@ public class MainController {
     @FXML private Button cancelClip;
 
     private static final int MIN_PIXELS = 200;
-    private static final String PLAY = "play";
-    private static final String PAUSE = "pause";
-    private static final String STOP = "stop";
 
-    private double width = 1920.0;
-    private double height = 1080.0;
-
-    private Optional<String> loadedMedia;
+    private Optional<File> loadedMedia = Optional.empty();
+    private Optional<Clip> editingClip = Optional.empty();;
 
     public MainController() {
         this.mediaPlayerFactory = new MediaPlayerFactory();
         this.embeddedMediaPlayer = mediaPlayerFactory.mediaPlayers().newEmbeddedMediaPlayer();
     }
 
-    public void load(String url) {
-        embeddedMediaPlayer.media().play(url);
+    public boolean load(File file) {
+        bottomBarPlay.setVisible(true);
+        bottomBarClip.setVisible(false);
+        reset(videoImageView, VIDEO_WIDTH, VIDEO_HEIGHT);
+        embeddedMediaPlayer.controls().stop();
+        embeddedMediaPlayer.media().play(file.getAbsolutePath());
         embeddedMediaPlayer.controls().setPosition(0.0f);
-        reset(videoImageView, width, height);
-        loadedMedia = Optional.of(url);
+        loadedMedia = Optional.of(file);
+        // TODO figure out bad file, gripe and return false;
+        return true;
+    }
+
+    @FXML
+    public void skipBackward(ActionEvent event) {
+        if (embeddedMediaPlayer.status().isPlaying()) {
+            long time = embeddedMediaPlayer.status().time();
+            embeddedMediaPlayer.controls().setTime(Math.max(time - 10000, 0));
+        }
+    }
+
+    @FXML
+    public void playPause(ActionEvent event) {
+        if (playPause.getGraphic().equals(PAUSE_ICON)) {
+            embeddedMediaPlayer.controls().pause();
+        } else {
+            embeddedMediaPlayer.controls().play();
+        }
+    }
+
+    @FXML
+    public void skipForward(ActionEvent event) {
+        if (embeddedMediaPlayer.status().isPlaying()) {
+            long time = embeddedMediaPlayer.status().time();
+            embeddedMediaPlayer.controls().setTime(Math.min(time + 10000, embeddedMediaPlayer.status().length()));
+        }
+    }
+
+    @FXML
+    public void clipPlayStop(ActionEvent event) {
+        if (clipPlayStop.getGraphic().equals(STOP_ICON)) {
+            embeddedMediaPlayer.controls().pause();
+        } else {
+            embeddedMediaPlayer.controls().setTime((long) rangeSlider.getLowValue() * 1000);
+            embeddedMediaPlayer.controls().play();
+        }
+    }
+
+    @FXML
+    public void addClip(ActionEvent event) {
+        embeddedMediaPlayer.controls().pause();
+
+        long time = embeddedMediaPlayer.status().time();
+
+        activateClipMode(
+                Math.max(time - 30000, 0),
+                Math.max(time - 5000, 0),
+                Math.min(time + 5000, embeddedMediaPlayer.status().length()),
+                Math.min(time + 30000, embeddedMediaPlayer.status().length()),
+                Optional.empty()
+        );
+
+        embeddedMediaPlayer.controls().setTime(Math.max((int) time - 5000, 0));
+    }
+
+    @FXML
+    public void cancelClip(ActionEvent event) {
+        bottomBarPlay.setVisible(true);
+        bottomBarClip.setVisible(false);
+    }
+
+    @FXML
+    public void saveClip(ActionEvent event) {
+        Clip newClip = new Clip(
+                loadedMedia.get(),
+                rangeSlider.getMin() * 1000.0,
+                rangeSlider.getLowValue() * 1000.0,
+                rangeSlider.getHighValue() * 1000.0,
+                rangeSlider.getMax() * 1000.0,
+                videoImageView.getViewport()
+        );
+        if (editingClip.isPresent()) {
+            ObservableList<Clip> items = clips.getItems();
+            int idx = items.indexOf(editingClip.get());
+            items.remove(idx);
+            items.add(idx, newClip);
+        } else {
+            clips.getItems().add(newClip);
+        }
+        editingClip = Optional.of(newClip);
+    }
+
+    @FXML
+    public void clipSetStart(ActionEvent event) {
+        rangeSlider.setLowValue(embeddedMediaPlayer.status().time() / 1000.0);
+    }
+
+    @FXML
+    public void clipSetStop(ActionEvent event) {
+        rangeSlider.setHighValue(embeddedMediaPlayer.status().time() / 1000.0);
+    }
+
+    @FXML
+    public void keyPressedFiles(KeyEvent event) {
+        if (event.getCode() == KeyCode.DELETE) {
+            files.getItems().removeAll(files.getSelectionModel().getSelectedItems());
+        }
+    }
+    @FXML
+    public void keyPressedClips(KeyEvent event) {
+        if (event.getCode() == KeyCode.DELETE) {
+            clips.getItems().removeAll(clips.getSelectionModel().getSelectedItems());
+        }
     }
 
     public void start(Stage stage) {
-        videoImageView.setPreserveRatio(true);
+        clips.getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
+        files.setCellFactory(listView -> {
+            ListCell<File> listCell = new ListCell<>() {
+                @Override
+                public void updateItem(File item, boolean empty) {
+                    super.updateItem(item, empty);
+                    if (empty) {
+                        setText(null);
+                    } else if (item != null) {
+                        setText(item.getName());
+                    }
+                }
+            };
+
+            listCell.setOnMouseClicked(event -> {
+                if (event.getClickCount() > 1) {
+                    if (!load(listCell.getItem())) {
+                        files.getItems().remove(listCell.getItem());
+                    }
+                }
+            });
+            return listCell;
+        });
+
+        clips.getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
+        clips.setCellFactory(listView -> {
+                    ListCell<Clip> listCell = new ListCell<>() {
+                        @Override
+                        public void updateItem(Clip item, boolean empty) {
+                            super.updateItem(item, empty);
+                            if (empty) {
+                                setText(null);
+                            } else if (item != null) {
+                                setText(item.itemRepresentation());
+                            }
+                        }
+                    };
+
+                    listCell.setOnMouseClicked(event -> {
+                        if (event.getClickCount() > 1) {
+                            loadClip(listCell.getItem());
+                        }
+                    });
+                    return listCell;
+                });
 
         embeddedMediaPlayer.videoSurface().set(videoSurfaceForImageView(this.videoImageView));
         embeddedMediaPlayer.events().addMediaPlayerEventListener(new MediaPlayerEventAdapter() {
             @Override
             public void playing(MediaPlayer mediaPlayer) {
                 Platform.runLater(() -> {
-                    playSlider.setMax(mediaPlayer.status().length());
-                    playPause.setText(PAUSE);
-                    clipPlayStop.setText(STOP);
+                    playSlider.setMax(mediaPlayer.status().length() / 1000.0);
+                    playPause.setGraphic(PAUSE_ICON);
+                    clipPlayStop.setGraphic(STOP_ICON);
                 });
             }
 
             @Override
             public void paused(MediaPlayer mediaPlayer) {
                 Platform.runLater(() -> {
-                    playPause.setText(PLAY);
-                    clipPlayStop.setText(PLAY);
+                    playPause.setGraphic(PLAY_ICON);
+                    clipPlayStop.setGraphic(CLIP_PLAY_ICON);
                 });
             }
 
@@ -100,10 +271,10 @@ public class MainController {
             public void timeChanged(MediaPlayer mediaPlayer, long newTime) {
                 if (bottomBarPlay.isVisible()) {
                     if (!playSlider.isValueChanging()) {
-                        playSlider.setValue(newTime);
+                        playSlider.setValue(newTime / 1000.0);
                     }
                 } else {
-                    if (newTime >= rangeSlider.getHighValue()) {
+                    if (newTime >= rangeSlider.getHighValue() * 1000) {
                         mediaPlayer.controls().pause();
                     }
                 }
@@ -112,45 +283,20 @@ public class MainController {
             @Override
             public void finished(MediaPlayer mediaPlayer) {
                 Platform.runLater(() -> {
-                    playPause.setText(PLAY);
-                    clipPlayStop.setText(PLAY);
+                    playPause.setGraphic(PLAY_ICON);
+                    clipPlayStop.setGraphic(CLIP_PLAY_ICON);
                 });
             }
         });
 
-        playSlider.valueProperty().addListener((observableValue, number, t1) -> {
+        playSlider.valueProperty().addListener((observableValue, number, newValue) -> {
             if (playSlider.isValueChanging()) {
-                embeddedMediaPlayer.controls().setTime(t1.longValue());
+                embeddedMediaPlayer.controls().setTime(newValue.longValue() * 1000);
             }
         });
 
-        //reset(videoImageView, width, height);
-
         videoImageView.fitWidthProperty().bind(videoPane.widthProperty().subtract(10));
         videoImageView.fitHeightProperty().bind(videoPane.heightProperty().subtract(bottomPane.heightProperty()).subtract(5));
-
-        //videoImageView.fitWidthProperty().addListener(new PrintChangeListener("videoImageView.fitWidth"));
-        //videoPane.heightProperty().addListener(new PrintChangeListener("videoPane.height"));
-
-        treeView.setCellFactory(tree -> {
-            TreeCell<File> treeCell = new TreeCell<>() {
-                @Override
-                public void updateItem(File item, boolean empty) {
-                    super.updateItem(item, empty) ;
-                    if (empty) {
-                        setText(null);
-                    } else if (item != null) {
-                        setText(item.getName());
-                    }
-                }
-            };
-            treeCell.setOnMouseClicked(event -> {
-                if (event.getClickCount() > 1) {
-                    load(treeCell.getTreeItem().getValue().getAbsolutePath());
-                }
-            });
-            return treeCell;
-        });
 
         ObjectProperty<Point2D> mouseDown = new SimpleObjectProperty<>();
 
@@ -174,7 +320,7 @@ public class MainController {
                     Math.min(MIN_PIXELS / viewport.getWidth(), MIN_PIXELS / viewport.getHeight()),
 
                     // don't scale so that we're bigger than image dimensions:
-                    Math.max(width / viewport.getWidth(), height / viewport.getHeight())
+                    Math.max(VIDEO_WIDTH / viewport.getWidth(), VIDEO_HEIGHT / viewport.getHeight())
             );
 
             Point2D mouse = imageViewToImage(videoImageView, new Point2D(e.getX(), e.getY()));
@@ -183,83 +329,106 @@ public class MainController {
             double newHeight = viewport.getHeight() * scale;
 
             double newMinX = clamp(mouse.getX() - (mouse.getX() - viewport.getMinX()) * scale,
-                    0, width - newWidth);
+                    0, VIDEO_WIDTH - newWidth);
             double newMinY = clamp(mouse.getY() - (mouse.getY() - viewport.getMinY()) * scale,
-                    0, height - newHeight);
+                    0, VIDEO_HEIGHT - newHeight);
             videoImageView.setViewport(new Rectangle2D(newMinX, newMinY, newWidth, newHeight));
         });
 
-        playPause.setOnAction(event -> {
-            if (playPause.getText().equals(PAUSE)) {
-                embeddedMediaPlayer.controls().pause();
-            } else {
-                embeddedMediaPlayer.controls().play();
-            }
-        });
-
-        clipPlayStop.setOnAction(event -> {
-            if (clipPlayStop.getText().equals(STOP)) {
-                embeddedMediaPlayer.controls().pause();
-            } else {
-                embeddedMediaPlayer.controls().setTime((long) rangeSlider.getLowValue());
-                embeddedMediaPlayer.controls().play();
-            }
-        });
-
-        treeView.setRoot(new TreeItem<>());
-        treeView.setShowRoot(false);
-
-        addVideoMenuItem.setOnAction(event -> {
+        addVideo.setOnAction(event -> {
             File file = lazyFileChooser.get().showOpenDialog(stage);
-
-            TreeItem<File> fileTreeItem = new TreeItem<>(file);
-
-            treeView.getRoot().getChildren().add(fileTreeItem);
+            if (file != null) {
+                files.getItems().add(file);
+            }
         });
 
-        clip.setOnAction( event -> {
-            bottomBarPlay.setVisible(false);
-            bottomBarClip.setVisible(true);
-            embeddedMediaPlayer.controls().pause();
+        loadProject.setOnAction(event -> {
+            File file = new FileChooser().showOpenDialog(stage);
+            if (file != null) {
+                ObjectMapper mapper = new ObjectMapper();
+                SimpleModule module = new SimpleModule();
+                module.addDeserializer(Rectangle2D.class, new RectangleDeserializer(Rectangle2D.class));
+                mapper.registerModule(module);
 
-            long time = embeddedMediaPlayer.status().time();
-
-            rangeSlider.setMin(Math.max(time - 30000, 0));
-            rangeSlider.setMax(Math.min(time + 30000, embeddedMediaPlayer.status().length()));
-            rangeSlider.setLowValue(Math.max(time - 10000, 0));
-            rangeSlider.setHighValue(Math.min(time + 10000, embeddedMediaPlayer.status().length()));
-            embeddedMediaPlayer.controls().setTime(Math.max(time - 10000, 0));
+                files.getItems().clear();
+                clips.getItems().clear();
+                try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+                    files.getItems().addAll(mapper.readValue(reader.readLine(), new TypeReference<List<File>>() {
+                    }));
+                    String content = reader.readLine();
+                    clips.getItems().addAll(mapper.readValue(content, new TypeReference<List<Clip>>() {
+                    }));
+                } catch (Exception ex) {
+                    ex.printStackTrace(System.err);
+                }
+            }
         });
 
-        cancelClip.setOnAction(event -> {
-            bottomBarPlay.setVisible(true);
-            bottomBarClip.setVisible(false);
+        saveProject.setOnAction(event -> {
+            File file = new FileChooser().showSaveDialog(stage);
+            if (file != null) {
+                ObjectMapper mapper = new ObjectMapper();
+
+                try (Writer writer = new BufferedWriter(new FileWriter(file))) {
+                    writer.append(mapper.writeValueAsString(files.getItems()));
+                    writer.append('\n');
+                    writer.append(mapper.writeValueAsString(clips.getItems()));
+                    writer.append('\n');
+                } catch (Exception ex) {
+                    ex.printStackTrace(System.err);
+                }
+            }
         });
 
-        saveClip.setOnAction(event -> {
-            loadedMedia.ifPresent( url -> {
-                Rectangle2D viewPort = videoImageView.getViewport();
-                System.out.printf("ffmpeg -ss %.2f -i %s -vf \"crop=%d:%d:%d:%d\" -t %.2f\n",
-                        rangeSlider.getLowValue() / 1000,
-                        url,
-                        (int) viewPort.getWidth(),
-                        (int) viewPort.getHeight(),
-                        (int) viewPort.getMinX(),
-                        (int) viewPort.getMinY(),
-                        (rangeSlider.getHighValue() - rangeSlider.getLowValue()) / 1000
-                );
-            });
-        });
+        renderScript.setOnAction(event -> {
+            File dir = new DirectoryChooser().showDialog(stage);
+            try (Writer runWriter = new BufferedWriter(new FileWriter(new File(dir, "run.sh")));
+                 Writer concatWriter = new BufferedWriter(new FileWriter(new File(dir, "concat_files.txt")))
+            ) {
+                for (Clip clip : clips.getSelectionModel().getSelectedItems()) {
+                    Rectangle2D viewPort = clip.viewportRect;
+                    runWriter.append(String.format("ffmpeg -n -ss %.2f -i %s -vf \"crop=%d:%d:%d:%d, scale=%d:%d\" -t %.2f %s.mp4\n",
+                            clip.lowValue / 1000,
+                            clip.file,
+                            (int) viewPort.getWidth(),
+                            (int) viewPort.getHeight(),
+                            (int) viewPort.getMinX(),
+                            (int) viewPort.getMinY(),
+                            (int) VIDEO_WIDTH,
+                            (int) VIDEO_HEIGHT,
+                            (clip.highValue - clip.lowValue) / 1000,
+                            clip.itemRepresentation()
+                    ));
 
-        clipSetStart.setOnAction(event -> {
-            rangeSlider.setLowValue(embeddedMediaPlayer.status().time());
-        });
+                    concatWriter.append(String.format("file %s.mp4\n", clip.itemRepresentation()));
+                }
 
-        clipSetStop.setOnAction(event -> {
-            rangeSlider.setHighValue(embeddedMediaPlayer.status().time());
+                runWriter.append("ffmpeg -f concat -i concat_files.txt -c copy concatenated.mp4\n");
+            } catch (IOException ex) {
+                ex.printStackTrace(System.err);
+            }
         });
+    }
 
-        splitPane.setDividerPositions(0.20);
+    private void loadClip(Clip clip) {
+        embeddedMediaPlayer.controls().stop();
+        load(clip.file);
+        activateClipMode(clip.minValue, clip.lowValue, clip.highValue, clip.maxValue, Optional.of(clip));
+        videoImageView.setViewport(clip.viewportRect);
+        embeddedMediaPlayer.controls().setTime((long) clip.lowValue);
+    }
+
+    private void activateClipMode(double minValue, double lowValue, double highValue, double maxValue, Optional<Clip> editingClip) {
+        bottomBarPlay.setVisible(false);
+        bottomBarClip.setVisible(true);
+
+        rangeSlider.setMin(Math.round(minValue / 1000.0));
+        rangeSlider.setMax(Math.round(maxValue / 1000.0));
+        rangeSlider.setHighValue(highValue / 1000.0);
+        rangeSlider.setLowValue(lowValue / 1000.0);
+        rangeSlider.setHighValue(highValue / 1000.0);
+
+        this.editingClip = editingClip;
     }
 
     // reset to the top left:
@@ -308,5 +477,53 @@ public class MainController {
         embeddedMediaPlayer.controls().stop();
         embeddedMediaPlayer.release();
         mediaPlayerFactory.release();
+    }
+
+    public static class Clip {
+        public final File file;
+        public final double minValue;
+        public final double lowValue;
+        public final double highValue;
+        public final double maxValue;
+        public final Rectangle2D viewportRect;
+
+        @JsonCreator
+        public Clip(
+            @JsonProperty("file") File file,
+            @JsonProperty("minValue") double minValue,
+            @JsonProperty("lowValue") double lowValue,
+            @JsonProperty("highValue") double highValue,
+            @JsonProperty("maxValue") double maxValue,
+            @JsonProperty("viewportRect") Rectangle2D viewportRect) {
+            this.file = file;
+            this.minValue = minValue;
+            this.lowValue = lowValue;
+            this.highValue = highValue;
+            this.maxValue = maxValue;
+            this.viewportRect = viewportRect;
+        }
+
+        public String itemRepresentation() {
+            return String.format("%s_%d",
+                    file.getName().replaceFirst("[.][^.]+$", ""),
+                    (long) (lowValue * 1000));
+        }
+    }
+
+    public static class RectangleDeserializer extends StdDeserializer<Rectangle2D> {
+        public RectangleDeserializer(Class<?> vc) {
+            super(vc);
+        }
+
+        @Override
+        public Rectangle2D deserialize(JsonParser jsonParser, DeserializationContext deserializationContext) throws IOException, JacksonException {
+            JsonNode node = jsonParser.getCodec().readTree(jsonParser);
+            return new Rectangle2D(
+                    node.get("minX").doubleValue(),
+                    node.get("minY").doubleValue(),
+                    node.get("width").doubleValue(),
+                    node.get("height").doubleValue()
+            );
+        }
     }
 }

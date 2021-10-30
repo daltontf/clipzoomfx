@@ -7,6 +7,9 @@ module org.daltontf1212 {
     requires controlsfx;
     requires java.desktop;
     requires io.vavr;
+    requires com.fasterxml.jackson.annotation;
+    requires com.fasterxml.jackson.core;
+    requires com.fasterxml.jackson.databind;
 
     opens org.daltontf1212;
 }

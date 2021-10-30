@@ -22,6 +22,9 @@ public class ClipZoomFxApp extends Application {
         controller.start(primaryStage);
 
         Scene scene = new Scene(root, 1300, 775);
+
+        scene.getStylesheets().add(getClass().getResource("/Main.css").toExternalForm());
+
         primaryStage.setScene(scene);
         primaryStage.show();
     }

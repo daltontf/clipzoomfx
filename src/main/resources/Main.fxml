@@ -5,31 +5,45 @@
 <?import javafx.scene.layout.*?>
 <?import org.controlsfx.control.RangeSlider?>
 <VBox xmlns:fx="http://javafx.com/fxml" fx:controller="org.daltontf1212.MainController">
-    <MenuBar fx:id="menuBar">
+    <MenuBar>
         <Menu text="File">
-            <MenuItem text="Add Video" fx:id="addVideoMenuItem"/>
+            <MenuItem text="Add Video" fx:id="addVideo"/>
+            <MenuItem text="Load Project" fx:id="loadProject"/>
+            <MenuItem text="Save Project" fx:id="saveProject"/>
+        </Menu>
+        <Menu text="Run">
+            <MenuItem text="Render Script" fx:id="renderScript"/>
         </Menu>
     </MenuBar>
-    <SplitPane VBox.vgrow="ALWAYS" fx:id="splitPane">
+    <SplitPane VBox.vgrow="ALWAYS" dividerPositions="0.15">
         <items>
-            <ScrollPane fx:id="treeScrollPane" fitToHeight="true" fitToWidth="true">
-                <TreeView fx:id="treeView"/>
-            </ScrollPane>
+            <SplitPane orientation="VERTICAL" dividerPositions="0.5">
+                <VBox>
+                    <Label text="Files"/>
+                    <ListView VBox.vgrow="ALWAYS" fx:id="files" onKeyPressed="#keyPressedFiles"/>
+                </VBox>
+                <VBox>
+                    <Label text="Clips"/>
+                    <ListView VBox.vgrow="ALWAYS" fx:id="clips" onKeyPressed="#keyPressedClips"/>
+                </VBox>
+            </SplitPane>
             <VBox fx:id="videoPane">
-                <ImageView VBox.vgrow="ALWAYS" fx:id="videoImageView"/>
+                <ImageView VBox.vgrow="ALWAYS" fx:id="videoImageView" preserveRatio="true"/>
                 <StackPane fx:id="bottomPane">
                 <HBox fx:id="bottomBarPlay">
-                    <Button fx:id="playPause"/>
-                    <Slider HBox.hgrow="ALWAYS" fx:id="playSlider"/>
-                    <Button text="Clip" fx:id="clip"/>
+                    <Button id="skipBackward" onAction="#skipBackward"/>
+                    <Button fx:id="playPause" onAction="#playPause"/>
+                    <Button id="skipForward" onAction="#skipForward"/>
+                    <Slider HBox.hgrow="ALWAYS" showTickLabels="true" showTickMarks="true" majorTickUnit="60" fx:id="playSlider"/>
+                    <Button fx:id="addClip" onAction="#addClip"/>
                 </HBox>
                 <HBox visible="false" fx:id="bottomBarClip">
-                    <Button fx:id="clipPlayStop"/>
-                    <Button text="|-" fx:id="clipSetStart"/>
-                    <RangeSlider HBox.hgrow="ALWAYS" fx:id="rangeSlider"/>
-                    <Button text="-|" fx:id="clipSetStop"/>
-                    <Button text="Save" fx:id="saveClip"/>
-                    <Button text="Cancel" fx:id="cancelClip"/>
+                    <Button fx:id="clipPlayStop" onAction="#clipPlayStop"/>
+                    <RangeSlider HBox.hgrow="ALWAYS" showTickLabels="true" showTickMarks="true" majorTickUnit="1" fx:id="rangeSlider"/>
+                    <Button fx:id="clipSetStart" onAction="#clipSetStart"/>
+                    <Button fx:id="clipSetStop" onAction="#clipSetStop"/>
+                    <Button fx:id="saveClip" onAction="#saveClip"/>
+                    <Button fx:id="cancelClip" onAction="#cancelClip"/>
                 </HBox>
                 </StackPane>
             </VBox>
