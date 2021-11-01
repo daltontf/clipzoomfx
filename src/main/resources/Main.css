@@ -8,6 +8,7 @@
 
 .label{
     -fx-text-fill: lightgray;
+    -fx-padding: 5px;
 }
 
 .text-field {
@@ -63,6 +64,10 @@
 
 .button#cancelClip {
     -fx-graphic: url("cancelClip.png");
+}
+
+.button#sortFiles, .button#sortClips {
+    -fx-graphic: url("sortaz.png");
 }
 
 .slider {

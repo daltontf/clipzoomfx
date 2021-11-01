@@ -13,13 +13,18 @@ import com.fasterxml.jackson.databind.module.SimpleModule;
 import io.vavr.Lazy;
 import javafx.application.Platform;
 import javafx.beans.property.ObjectProperty;
+import javafx.beans.property.SimpleBooleanProperty;
 import javafx.beans.property.SimpleObjectProperty;
+import javafx.beans.property.SimpleStringProperty;
+import javafx.beans.value.ChangeListener;
+import javafx.beans.value.ObservableValue;
 import javafx.collections.ObservableList;
 import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
 import javafx.geometry.Point2D;
 import javafx.geometry.Rectangle2D;
 import javafx.scene.control.*;
+import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
@@ -36,6 +41,8 @@ import uk.co.caprica.vlcj.player.base.MediaPlayerEventAdapter;
 import uk.co.caprica.vlcj.player.embedded.EmbeddedMediaPlayer;
 
 import java.io.*;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 
@@ -50,12 +57,20 @@ public class MainController {
     public final ImageView PAUSE_ICON = new ImageView("pause.png");
     public final ImageView STOP_ICON = new ImageView("stop.png");
 
-    private Lazy<FileChooser> lazyFileChooser = Lazy.of(FileChooser::new);
+    private Lazy<FileChooser> lazyFileChooser = Lazy.of(() -> {
+        var chooser = new FileChooser();
+        chooser.getExtensionFilters().add(
+                new FileChooser.ExtensionFilter("Video Files",
+                "*.mp4", "*.mts", "*.MTS", "*.m4v", "*.m2ts"));
+
+        return chooser;
+    });
     private final MediaPlayerFactory mediaPlayerFactory;
 
     @FXML private MenuItem addVideo;
     @FXML private MenuItem loadProject;
     @FXML private MenuItem saveProject;
+    @FXML private MenuItem saveProjectAs;
     @FXML private MenuItem renderScript;
     @FXML private ListView<File> files;
     @FXML private ListView<Clip> clips;
@@ -66,21 +81,20 @@ public class MainController {
     @FXML private HBox bottomBarPlay;
     @FXML private Button playPause;
     @FXML private Slider playSlider;
-    @FXML private Button addClip;
 
     @FXML private StackPane bottomPane;
     @FXML private HBox bottomBarClip;
     @FXML private Button clipPlayStop;
-    @FXML private Button clipSetStart;
-    @FXML private RangeSlider rangeSlider;
-    @FXML private Button clipSetStop;
     @FXML private Button saveClip;
-    @FXML private Button cancelClip;
+    @FXML private RangeSlider rangeSlider;
 
     private static final int MIN_PIXELS = 200;
 
     private Optional<File> loadedMedia = Optional.empty();
-    private Optional<Clip> editingClip = Optional.empty();;
+    private Optional<Clip> editingClip = Optional.empty();
+    private SimpleBooleanProperty projectDirty = new SimpleBooleanProperty(false);
+    private SimpleBooleanProperty clipDirty = new SimpleBooleanProperty(false);
+    private SimpleObjectProperty<File> projectFile = new SimpleObjectProperty<>(null);
 
     public MainController() {
         this.mediaPlayerFactory = new MediaPlayerFactory();
@@ -93,7 +107,6 @@ public class MainController {
         reset(videoImageView, VIDEO_WIDTH, VIDEO_HEIGHT);
         embeddedMediaPlayer.controls().stop();
         embeddedMediaPlayer.media().play(file.getAbsolutePath());
-        embeddedMediaPlayer.controls().setPosition(0.0f);
         loadedMedia = Optional.of(file);
         // TODO figure out bad file, gripe and return false;
         return true;
@@ -148,18 +161,39 @@ public class MainController {
                 Optional.empty()
         );
 
+        clipDirty.setValue(true);
+
         embeddedMediaPlayer.controls().setTime(Math.max((int) time - 5000, 0));
     }
 
     @FXML
     public void cancelClip(ActionEvent event) {
+        if (clipDirty.get()) {
+            var dialog = new Dialog<ButtonType>();
+            dialog.setTitle("Confirm Cancel Clip");
+            dialog.setContentText("Do wish save the clip before exiting clip editor?");
+            dialog.getDialogPane().getButtonTypes().addAll(
+                    Arrays.asList(ButtonType.YES, ButtonType.NO, ButtonType.CANCEL)
+            );
+            var choice = dialog.showAndWait().orElse(ButtonType.CANCEL);
+            if (choice == ButtonType.CANCEL) {
+                return;
+            }
+            if (choice == ButtonType.YES) {
+                saveClip(event);
+            }
+        }
         bottomBarPlay.setVisible(true);
         bottomBarClip.setVisible(false);
+
+        playSlider.setValue(embeddedMediaPlayer.status().time() / 1000.0);
     }
 
     @FXML
     public void saveClip(ActionEvent event) {
-        Clip newClip = new Clip(
+        clipDirty.setValue(false);
+        projectDirty.setValue(true);
+        var newClip = new Clip(
                 loadedMedia.get(),
                 rangeSlider.getMin() * 1000.0,
                 rangeSlider.getLowValue() * 1000.0,
@@ -180,31 +214,50 @@ public class MainController {
 
     @FXML
     public void clipSetStart(ActionEvent event) {
+        clipDirty.setValue(true);
         rangeSlider.setLowValue(embeddedMediaPlayer.status().time() / 1000.0);
     }
 
     @FXML
     public void clipSetStop(ActionEvent event) {
+        clipDirty.setValue(true);
         rangeSlider.setHighValue(embeddedMediaPlayer.status().time() / 1000.0);
     }
 
     @FXML
     public void keyPressedFiles(KeyEvent event) {
         if (event.getCode() == KeyCode.DELETE) {
+            projectDirty.setValue(true);
             files.getItems().removeAll(files.getSelectionModel().getSelectedItems());
         }
     }
     @FXML
     public void keyPressedClips(KeyEvent event) {
         if (event.getCode() == KeyCode.DELETE) {
+            projectDirty.setValue(true);
             clips.getItems().removeAll(clips.getSelectionModel().getSelectedItems());
         }
     }
 
+    @FXML
+    public void sortFiles(ActionEvent event) {
+        projectDirty.setValue(true);
+        files.getItems().sort(Comparator.comparing(File::getName));
+    }
+
+    @FXML
+    public void sortClips(ActionEvent event) {
+        projectDirty.setValue(true);
+        clips.getItems().sort(Comparator.comparing(Clip::itemRepresentation));
+    }
+
     public void start(Stage stage) {
+        stage.getIcons()
+            .add(new Image(this.getClass().getResourceAsStream( "/icon48.png" )));
+
         clips.getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
         files.setCellFactory(listView -> {
-            ListCell<File> listCell = new ListCell<>() {
+            var listCell = new ListCell<File>() {
                 @Override
                 public void updateItem(File item, boolean empty) {
                     super.updateItem(item, empty);
@@ -228,32 +281,36 @@ public class MainController {
 
         clips.getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
         clips.setCellFactory(listView -> {
-                    ListCell<Clip> listCell = new ListCell<>() {
-                        @Override
-                        public void updateItem(Clip item, boolean empty) {
-                            super.updateItem(item, empty);
-                            if (empty) {
-                                setText(null);
-                            } else if (item != null) {
-                                setText(item.itemRepresentation());
-                            }
-                        }
-                    };
+            var listCell = new ListCell<Clip>() {
+                @Override
+                public void updateItem(Clip item, boolean empty) {
+                    super.updateItem(item, empty);
+                    if (empty) {
+                        setText(null);
+                    } else if (item != null) {
+                        setText(item.itemRepresentation());
+                    }
+                }
+            };
 
-                    listCell.setOnMouseClicked(event -> {
-                        if (event.getClickCount() > 1) {
-                            loadClip(listCell.getItem());
-                        }
-                    });
-                    return listCell;
-                });
+            listCell.setOnMouseClicked(event -> {
+                if (event.getClickCount() > 1) {
+                    loadClip(listCell.getItem());
+                }
+            });
+            return listCell;
+        });
 
         embeddedMediaPlayer.videoSurface().set(videoSurfaceForImageView(this.videoImageView));
         embeddedMediaPlayer.events().addMediaPlayerEventListener(new MediaPlayerEventAdapter() {
             @Override
+            public void mediaPlayerReady(MediaPlayer mediaPlayer) {
+                Platform.runLater(() ->  playSlider.setMax(mediaPlayer.status().length() / 1000.0));
+            }
+
+            @Override
             public void playing(MediaPlayer mediaPlayer) {
                 Platform.runLater(() -> {
-                    playSlider.setMax(mediaPlayer.status().length() / 1000.0);
                     playPause.setGraphic(PAUSE_ICON);
                     clipPlayStop.setGraphic(STOP_ICON);
                 });
@@ -298,7 +355,7 @@ public class MainController {
         videoImageView.fitWidthProperty().bind(videoPane.widthProperty().subtract(10));
         videoImageView.fitHeightProperty().bind(videoPane.heightProperty().subtract(bottomPane.heightProperty()).subtract(5));
 
-        ObjectProperty<Point2D> mouseDown = new SimpleObjectProperty<>();
+        var mouseDown = new SimpleObjectProperty<Point2D>();
 
         videoImageView.setOnMousePressed(e -> {
             Point2D mousePress = imageViewToImage(videoImageView, new Point2D(e.getX(), e.getY()));
@@ -306,6 +363,7 @@ public class MainController {
         });
 
         videoImageView.setOnMouseDragged(e -> {
+            clipDirty.setValue(true);
             Point2D dragPoint = imageViewToImage(videoImageView, new Point2D(e.getX(), e.getY()));
             shift(videoImageView, dragPoint.subtract(mouseDown.get()));
             mouseDown.set(imageViewToImage(videoImageView, new Point2D(e.getX(), e.getY())));
@@ -332,18 +390,30 @@ public class MainController {
                     0, VIDEO_WIDTH - newWidth);
             double newMinY = clamp(mouse.getY() - (mouse.getY() - viewport.getMinY()) * scale,
                     0, VIDEO_HEIGHT - newHeight);
+            if (newMinX != viewport.getMinX()
+                    || newMinY != viewport.getMinY()
+                    || newWidth != viewport.getWidth()
+                    || newHeight != viewport.getHeight()) {
+                clipDirty.setValue(true);
+            }
+
             videoImageView.setViewport(new Rectangle2D(newMinX, newMinY, newWidth, newHeight));
         });
 
         addVideo.setOnAction(event -> {
-            File file = lazyFileChooser.get().showOpenDialog(stage);
-            if (file != null) {
-                files.getItems().add(file);
+            List<File> choosen = lazyFileChooser.get().showOpenMultipleDialog(stage);
+            if (choosen != null) {
+                files.getItems().addAll(choosen);
             }
+            projectDirty.setValue(true);
         });
 
         loadProject.setOnAction(event -> {
-            File file = new FileChooser().showOpenDialog(stage);
+            FileChooser fileChooser = new FileChooser();
+            fileChooser.getExtensionFilters().add(
+                    new FileChooser.ExtensionFilter("JSON Files",
+                            "*.json"));
+            File file = fileChooser.showOpenDialog(stage);
             if (file != null) {
                 ObjectMapper mapper = new ObjectMapper();
                 SimpleModule module = new SimpleModule();
@@ -361,23 +431,23 @@ public class MainController {
                 } catch (Exception ex) {
                     ex.printStackTrace(System.err);
                 }
+                projectDirty.setValue(false);
+                projectFile.setValue(file);
             }
         });
 
         saveProject.setOnAction(event -> {
-            File file = new FileChooser().showSaveDialog(stage);
-            if (file != null) {
-                ObjectMapper mapper = new ObjectMapper();
+            saveProject();
+        });
 
-                try (Writer writer = new BufferedWriter(new FileWriter(file))) {
-                    writer.append(mapper.writeValueAsString(files.getItems()));
-                    writer.append('\n');
-                    writer.append(mapper.writeValueAsString(clips.getItems()));
-                    writer.append('\n');
-                } catch (Exception ex) {
-                    ex.printStackTrace(System.err);
-                }
-            }
+        projectDirty.addListener(
+            (observableValue, oldValue, newValue) -> {
+                saveProject.setDisable(projectFile.get() == null || !newValue);
+            });
+        saveProject.setDisable(true);
+
+        saveProjectAs.setOnAction(event -> {
+            saveProjectAs(stage);
         });
 
         renderScript.setOnAction(event -> {
@@ -387,7 +457,7 @@ public class MainController {
             ) {
                 for (Clip clip : clips.getSelectionModel().getSelectedItems()) {
                     Rectangle2D viewPort = clip.viewportRect;
-                    runWriter.append(String.format("ffmpeg -n -ss %.2f -i %s -vf \"crop=%d:%d:%d:%d, scale=%d:%d\" -t %.2f %s.mp4\n",
+                    runWriter.append(String.format("ffmpeg -ss %.2f -i %s -vf \"crop=%d:%d:%d:%d, scale=%d:%d\" -t %.2f %s.mp4\n",
                             clip.lowValue / 1000,
                             clip.file,
                             (int) viewPort.getWidth(),
@@ -408,12 +478,69 @@ public class MainController {
                 ex.printStackTrace(System.err);
             }
         });
+
+        saveClip.disableProperty().bind(clipDirty.not());
+
+        stage.setOnCloseRequest(windowEvent -> {
+            if (projectDirty.get()) {
+                Dialog<ButtonType> dialog = new Dialog<>();
+                dialog.setTitle("Confirm Exit");
+                dialog.setContentText("Save project changes before exit?");
+                dialog.getDialogPane().getButtonTypes().addAll(
+                        Arrays.asList(ButtonType.YES, ButtonType.NO, ButtonType.CANCEL)
+                );
+                ButtonType choice = dialog.showAndWait().orElse(ButtonType.CANCEL);
+                if (choice == ButtonType.CANCEL) {
+                    windowEvent.consume();
+                    return;
+                }
+                if (choice == ButtonType.YES) {
+                    var file = projectFile.getValue();
+                    if (file == null) {
+                        saveProjectAs(stage);
+                    } else {
+                        saveProject();
+                    }
+                }
+            }
+        });
+    }
+
+    private void saveProjectFile(File file) {
+        ObjectMapper mapper = new ObjectMapper();
+
+        try (Writer writer = new BufferedWriter(new FileWriter(file))) {
+            writer.append(mapper.writeValueAsString(files.getItems()));
+            writer.append('\n');
+            writer.append(mapper.writeValueAsString(clips.getItems()));
+            writer.append('\n');
+            projectDirty.setValue(false);
+            projectFile.setValue(file);
+        } catch (Exception ex) {
+            ex.printStackTrace(System.err);
+        }
+    }
+
+    private void saveProject() {
+        saveProjectFile(projectFile.getValue());
+    }
+
+    private void saveProjectAs(Stage stage) {
+        FileChooser fileChooser = new FileChooser();
+        fileChooser.getExtensionFilters().add(
+                new FileChooser.ExtensionFilter("JSON Files",
+                        "*.json"));
+        File file = fileChooser.showSaveDialog(stage);
+        if (file != null) {
+            saveProjectFile(file);
+        }
     }
 
     private void loadClip(Clip clip) {
         embeddedMediaPlayer.controls().stop();
         load(clip.file);
         activateClipMode(clip.minValue, clip.lowValue, clip.highValue, clip.maxValue, Optional.of(clip));
+        clipDirty.setValue(false);
         videoImageView.setViewport(clip.viewportRect);
         embeddedMediaPlayer.controls().setTime((long) clip.lowValue);
     }
