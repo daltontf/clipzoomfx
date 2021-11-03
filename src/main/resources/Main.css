@@ -58,6 +58,10 @@
     -fx-graphic: url("clipSetStop.png");
 }
 
+.button#describeClip {
+    -fx-graphic: url("describeClip.png");
+}
+
 .button#saveClip {
     -fx-graphic: url("saveClip.png");
 }

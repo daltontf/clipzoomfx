@@ -12,12 +12,8 @@ import com.fasterxml.jackson.databind.deser.std.StdDeserializer;
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import io.vavr.Lazy;
 import javafx.application.Platform;
-import javafx.beans.property.ObjectProperty;
 import javafx.beans.property.SimpleBooleanProperty;
 import javafx.beans.property.SimpleObjectProperty;
-import javafx.beans.property.SimpleStringProperty;
-import javafx.beans.value.ChangeListener;
-import javafx.beans.value.ObservableValue;
 import javafx.collections.ObservableList;
 import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
@@ -95,6 +91,7 @@ public class MainController {
     private SimpleBooleanProperty projectDirty = new SimpleBooleanProperty(false);
     private SimpleBooleanProperty clipDirty = new SimpleBooleanProperty(false);
     private SimpleObjectProperty<File> projectFile = new SimpleObjectProperty<>(null);
+    private Optional<String> clipDescription = Optional.empty();
 
     public MainController() {
         this.mediaPlayerFactory = new MediaPlayerFactory();
@@ -167,6 +164,18 @@ public class MainController {
     }
 
     @FXML
+    public void describeClip(ActionEvent event) {
+        TextInputDialog dialog = new TextInputDialog(clipDescription.orElse(""));
+        dialog.setTitle("Describe Clip");
+        dialog.setHeaderText("Enter description for this clip:");
+        Optional<String> result = dialog.showAndWait();
+        result.ifPresent(value -> {
+            clipDescription = Optional.of(value);
+            clipDirty.setValue(true);
+        });
+    }
+
+    @FXML
     public void cancelClip(ActionEvent event) {
         if (clipDirty.get()) {
             var dialog = new Dialog<ButtonType>();
@@ -195,6 +204,7 @@ public class MainController {
         projectDirty.setValue(true);
         var newClip = new Clip(
                 loadedMedia.get(),
+                clipDescription.orElse(null),
                 rangeSlider.getMin() * 1000.0,
                 rangeSlider.getLowValue() * 1000.0,
                 rangeSlider.getHighValue() * 1000.0,
@@ -287,8 +297,11 @@ public class MainController {
                     super.updateItem(item, empty);
                     if (empty) {
                         setText(null);
+                        setTooltip(null);
                     } else if (item != null) {
-                        setText(item.itemRepresentation());
+                        String itemRepresentation = item.itemRepresentation();
+                        setText(itemRepresentation);
+                        setTooltip(new Tooltip(itemRepresentation + (item.description != null ? "\n" + item.description : "")));
                     }
                 }
             };
@@ -555,6 +568,8 @@ public class MainController {
         rangeSlider.setLowValue(lowValue / 1000.0);
         rangeSlider.setHighValue(highValue / 1000.0);
 
+        this.clipDescription = editingClip.map(clip -> clip.description);
+
         this.editingClip = editingClip;
     }
 
@@ -608,6 +623,7 @@ public class MainController {
 
     public static class Clip {
         public final File file;
+        public final String description;
         public final double minValue;
         public final double lowValue;
         public final double highValue;
@@ -617,12 +633,14 @@ public class MainController {
         @JsonCreator
         public Clip(
             @JsonProperty("file") File file,
+            @JsonProperty("description") String description,
             @JsonProperty("minValue") double minValue,
             @JsonProperty("lowValue") double lowValue,
             @JsonProperty("highValue") double highValue,
             @JsonProperty("maxValue") double maxValue,
             @JsonProperty("viewportRect") Rectangle2D viewportRect) {
             this.file = file;
+            this.description = description;
             this.minValue = minValue;
             this.lowValue = lowValue;
             this.highValue = highValue;
@@ -631,9 +649,9 @@ public class MainController {
         }
 
         public String itemRepresentation() {
-            return String.format("%s_%d",
-                    file.getName().replaceFirst("[.][^.]+$", ""),
-                    (long) (lowValue * 1000));
+            String unpadded = String.valueOf((long) (lowValue * 1000));
+            return file.getName().replaceFirst("[.][^.]+$", "") +
+                    "_" + ("000000000000".substring(unpadded.length()) + unpadded).substring(0, 12);
         }
     }
 
