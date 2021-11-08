@@ -58,6 +58,14 @@
     -fx-graphic: url("clipSetStop.png");
 }
 
+.button#clipZoomOut {
+    -fx-graphic: url("clipZoomOut.png");
+}
+
+.button#clipZoomIn {
+    -fx-graphic: url("clipZoomIn.png");
+}
+
 .button#describeClip {
     -fx-graphic: url("describeClip.png");
 }

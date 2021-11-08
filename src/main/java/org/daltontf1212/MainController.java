@@ -45,8 +45,8 @@ import java.util.Optional;
 import static uk.co.caprica.vlcj.javafx.videosurface.ImageViewVideoSurfaceFactory.videoSurfaceForImageView;
 
 public class MainController {
-    private final static double VIDEO_WIDTH = 1920.0;
-    private final static double VIDEO_HEIGHT = 1080.0;
+    private double videoWidth = 1920.0;
+    private double videoHeight = 1080.0;
 
     public final ImageView PLAY_ICON = new ImageView("play.png");
     public final ImageView CLIP_PLAY_ICON = new ImageView("play.png");
@@ -57,7 +57,7 @@ public class MainController {
         var chooser = new FileChooser();
         chooser.getExtensionFilters().add(
                 new FileChooser.ExtensionFilter("Video Files",
-                "*.mp4", "*.mts", "*.MTS", "*.m4v", "*.m2ts"));
+                "*.mp4", "*.mts", "*.MTS", "*.m4v", "*.m2ts", "*.avi"));
 
         return chooser;
     });
@@ -79,6 +79,7 @@ public class MainController {
     @FXML private Slider playSlider;
 
     @FXML private StackPane bottomPane;
+
     @FXML private HBox bottomBarClip;
     @FXML private Button clipPlayStop;
     @FXML private Button saveClip;
@@ -88,10 +89,10 @@ public class MainController {
 
     private Optional<File> loadedMedia = Optional.empty();
     private Optional<Clip> editingClip = Optional.empty();
+    private Optional<String> clipDescription = Optional.empty();
     private SimpleBooleanProperty projectDirty = new SimpleBooleanProperty(false);
     private SimpleBooleanProperty clipDirty = new SimpleBooleanProperty(false);
     private SimpleObjectProperty<File> projectFile = new SimpleObjectProperty<>(null);
-    private Optional<String> clipDescription = Optional.empty();
 
     public MainController() {
         this.mediaPlayerFactory = new MediaPlayerFactory();
@@ -101,7 +102,6 @@ public class MainController {
     public boolean load(File file) {
         bottomBarPlay.setVisible(true);
         bottomBarClip.setVisible(false);
-        reset(videoImageView, VIDEO_WIDTH, VIDEO_HEIGHT);
         embeddedMediaPlayer.controls().stop();
         embeddedMediaPlayer.media().play(file.getAbsolutePath());
         loadedMedia = Optional.of(file);
@@ -111,10 +111,8 @@ public class MainController {
 
     @FXML
     public void skipBackward(ActionEvent event) {
-        if (embeddedMediaPlayer.status().isPlaying()) {
-            long time = embeddedMediaPlayer.status().time();
-            embeddedMediaPlayer.controls().setTime(Math.max(time - 10000, 0));
-        }
+        long time = embeddedMediaPlayer.status().time();
+        embeddedMediaPlayer.controls().setTime(Math.max(time - 10000, 0));
     }
 
     @FXML
@@ -128,10 +126,8 @@ public class MainController {
 
     @FXML
     public void skipForward(ActionEvent event) {
-        if (embeddedMediaPlayer.status().isPlaying()) {
-            long time = embeddedMediaPlayer.status().time();
-            embeddedMediaPlayer.controls().setTime(Math.min(time + 10000, embeddedMediaPlayer.status().length()));
-        }
+        long time = embeddedMediaPlayer.status().time();
+        embeddedMediaPlayer.controls().setTime(Math.min(time + 10000, embeddedMediaPlayer.status().length()));
     }
 
     @FXML
@@ -235,6 +231,38 @@ public class MainController {
     }
 
     @FXML
+    public void clipZoomOut(ActionEvent event) {
+        double minValue = rangeSlider.getMin();
+        double maxValue = rangeSlider.getMax();
+        double lowValue = rangeSlider.getLowValue();
+        double highValue = rangeSlider.getHighValue();
+        double fullRange = maxValue - minValue;
+        double rangeRange = highValue - lowValue;
+        if (fullRange < 300) {
+            double midPoint = lowValue + rangeRange / 2;
+            double newRange = fullRange * 1.25;
+            rangeSlider.setMin(Math.max(0.0, midPoint - newRange / 2));
+            rangeSlider.setMax(Math.max(playSlider.getMax() / 1000.0, midPoint + newRange / 2));
+        }
+    }
+
+    @FXML
+    public void clipZoomIn(ActionEvent event) {
+        double minValue = rangeSlider.getMin();
+        double maxValue = rangeSlider.getMax();
+        double lowValue = rangeSlider.getLowValue();
+        double highValue = rangeSlider.getHighValue();
+        double fullRange = maxValue - minValue;
+        double rangeRange = highValue - lowValue;
+        if (fullRange > 15) {
+            double midPoint = lowValue + rangeRange / 2;
+            double newRange = fullRange / 1.25;
+            rangeSlider.setMin(midPoint - newRange / 2);
+            rangeSlider.setMax(midPoint + newRange / 2);
+        }
+    }
+
+    @FXML
     public void keyPressedFiles(KeyEvent event) {
         if (event.getCode() == KeyCode.DELETE) {
             projectDirty.setValue(true);
@@ -318,7 +346,15 @@ public class MainController {
         embeddedMediaPlayer.events().addMediaPlayerEventListener(new MediaPlayerEventAdapter() {
             @Override
             public void mediaPlayerReady(MediaPlayer mediaPlayer) {
-                Platform.runLater(() ->  playSlider.setMax(mediaPlayer.status().length() / 1000.0));
+                Platform.runLater(() -> {
+                    if (isPlayerMode()) {
+                        videoHeight = mediaPlayer.video().videoDimension().getHeight();
+                        videoWidth = mediaPlayer.video().videoDimension().getWidth();
+                        reset(videoImageView, videoWidth, videoHeight);
+                    }
+                    // If we exit clip mode, it is already set.
+                    playSlider.setMax(mediaPlayer.status().length() / 1000.0);
+                });
             }
 
             @Override
@@ -339,7 +375,7 @@ public class MainController {
 
             @Override
             public void timeChanged(MediaPlayer mediaPlayer, long newTime) {
-                if (bottomBarPlay.isVisible()) {
+                if (isPlayerMode()) {
                     if (!playSlider.isValueChanging()) {
                         playSlider.setValue(newTime / 1000.0);
                     }
@@ -391,7 +427,7 @@ public class MainController {
                     Math.min(MIN_PIXELS / viewport.getWidth(), MIN_PIXELS / viewport.getHeight()),
 
                     // don't scale so that we're bigger than image dimensions:
-                    Math.max(VIDEO_WIDTH / viewport.getWidth(), VIDEO_HEIGHT / viewport.getHeight())
+                    Math.max(videoWidth / viewport.getWidth(), videoHeight / viewport.getHeight())
             );
 
             Point2D mouse = imageViewToImage(videoImageView, new Point2D(e.getX(), e.getY()));
@@ -400,9 +436,9 @@ public class MainController {
             double newHeight = viewport.getHeight() * scale;
 
             double newMinX = clamp(mouse.getX() - (mouse.getX() - viewport.getMinX()) * scale,
-                    0, VIDEO_WIDTH - newWidth);
+                    0, videoWidth - newWidth);
             double newMinY = clamp(mouse.getY() - (mouse.getY() - viewport.getMinY()) * scale,
-                    0, VIDEO_HEIGHT - newHeight);
+                    0, videoHeight - newHeight);
             if (newMinX != viewport.getMinX()
                     || newMinY != viewport.getMinY()
                     || newWidth != viewport.getWidth()
@@ -477,8 +513,8 @@ public class MainController {
                             (int) viewPort.getHeight(),
                             (int) viewPort.getMinX(),
                             (int) viewPort.getMinY(),
-                            (int) VIDEO_WIDTH,
-                            (int) VIDEO_HEIGHT,
+                            (int) videoWidth,
+                            (int) videoHeight,
                             (clip.highValue - clip.lowValue) / 1000,
                             clip.itemRepresentation()
                     ));
@@ -517,6 +553,10 @@ public class MainController {
                 }
             }
         });
+    }
+
+    private boolean isPlayerMode() {
+        return bottomBarPlay.isVisible();
     }
 
     private void saveProjectFile(File file) {

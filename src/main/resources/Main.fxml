@@ -49,6 +49,8 @@
                     <RangeSlider HBox.hgrow="ALWAYS" showTickLabels="true" showTickMarks="true" majorTickUnit="1" fx:id="rangeSlider"/>
                     <Button id="clipSetStart" onAction="#clipSetStart"/>
                     <Button id="clipSetStop" onAction="#clipSetStop"/>
+                    <Button id="clipZoomIn" onAction="#clipZoomIn"/>
+                    <Button id="clipZoomOut" onAction="#clipZoomOut"/>
                     <Button id="describeClip" onAction="#describeClip"/>
                     <Button fx:id="saveClip" onAction="#saveClip"/>
                     <Button id="cancelClip" onAction="#cancelClip"/>
