@@ -10,6 +10,9 @@ module org.daltontf1212 {
     requires com.fasterxml.jackson.annotation;
     requires com.fasterxml.jackson.core;
     requires com.fasterxml.jackson.databind;
+    requires com.github.kokorin.jaffree;
+    requires org.slf4j;
+    requires org.slf4j.simple;
 
     opens org.daltontf1212;
 }

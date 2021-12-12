@@ -10,12 +10,22 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.deser.std.StdDeserializer;
 import com.fasterxml.jackson.databind.module.SimpleModule;
+import com.github.kokorin.jaffree.StreamType;
+import com.github.kokorin.jaffree.ffmpeg.FFmpeg;
+import com.github.kokorin.jaffree.ffmpeg.UrlInput;
+import com.github.kokorin.jaffree.ffmpeg.UrlOutput;
+import com.github.kokorin.jaffree.ffprobe.FFprobe;
+import com.github.kokorin.jaffree.ffprobe.Stream;
 import io.vavr.Lazy;
 import javafx.application.Platform;
 import javafx.beans.property.SimpleBooleanProperty;
 import javafx.beans.property.SimpleObjectProperty;
+import javafx.beans.property.SimpleStringProperty;
+import javafx.beans.value.ChangeListener;
 import javafx.collections.ObservableList;
+import javafx.concurrent.Task;
 import javafx.event.ActionEvent;
+import javafx.event.Event;
 import javafx.fxml.FXML;
 import javafx.geometry.Point2D;
 import javafx.geometry.Rectangle2D;
@@ -37,10 +47,8 @@ import uk.co.caprica.vlcj.player.base.MediaPlayerEventAdapter;
 import uk.co.caprica.vlcj.player.embedded.EmbeddedMediaPlayer;
 
 import java.io.*;
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 import static uk.co.caprica.vlcj.javafx.videosurface.ImageViewVideoSurfaceFactory.videoSurfaceForImageView;
 
@@ -67,9 +75,10 @@ public class MainController {
     @FXML private MenuItem loadProject;
     @FXML private MenuItem saveProject;
     @FXML private MenuItem saveProjectAs;
+    @FXML private MenuItem generateVideo;
     @FXML private MenuItem renderScript;
     @FXML private ListView<File> files;
-    @FXML private ListView<Clip> clips;
+    @FXML private TableView<Clip> clips;
     @FXML private VBox videoPane;
     @FXML private ImageView videoImageView;
     private final EmbeddedMediaPlayer embeddedMediaPlayer;
@@ -89,7 +98,7 @@ public class MainController {
 
     private Optional<File> loadedMedia = Optional.empty();
     private Optional<Clip> editingClip = Optional.empty();
-    private Optional<String> clipDescription = Optional.empty();
+    private Optional<ClipDescriptionData> clipDescription = Optional.empty();
     private SimpleBooleanProperty projectDirty = new SimpleBooleanProperty(false);
     private SimpleBooleanProperty clipDirty = new SimpleBooleanProperty(false);
     private SimpleObjectProperty<File> projectFile = new SimpleObjectProperty<>(null);
@@ -161,10 +170,39 @@ public class MainController {
 
     @FXML
     public void describeClip(ActionEvent event) {
-        TextInputDialog dialog = new TextInputDialog(clipDescription.orElse(""));
+        Dialog<ClipDescriptionData> dialog = new Dialog<>();
         dialog.setTitle("Describe Clip");
         dialog.setHeaderText("Enter description for this clip:");
-        Optional<String> result = dialog.showAndWait();
+
+        VBox dialogRoot = new VBox();
+        TextArea descriptionText = new TextArea(clipDescription.map(ClipDescriptionData::getDescription).orElse(""));
+        dialogRoot.getChildren().add(descriptionText);
+        ComboBox<Integer> ratingCombo = new ComboBox<>();
+        ratingCombo.getItems().add(1);
+        ratingCombo.getItems().add(2);
+        ratingCombo.getItems().add(3);
+        ratingCombo.getItems().add(4);
+        ratingCombo.getItems().add(5);
+        dialogRoot.getChildren().add(new HBox(new Label("Rating:"), ratingCombo));
+
+        ratingCombo.setValue(clipDescription.map(ClipDescriptionData::getRating).orElse(null));
+
+        dialog.getDialogPane().setContent(dialogRoot);
+
+        dialog.setResultConverter(dialogButton -> {
+            if (dialogButton == ButtonType.OK) {
+                return new ClipDescriptionData(
+                        descriptionText.getText(),
+                        ratingCombo.getValue()
+                );
+            } else {
+                return null;
+            }
+        });
+
+        dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+
+        Optional<ClipDescriptionData> result = dialog.showAndWait();
         result.ifPresent(value -> {
             clipDescription = Optional.of(value);
             clipDirty.setValue(true);
@@ -174,18 +212,8 @@ public class MainController {
     @FXML
     public void cancelClip(ActionEvent event) {
         if (clipDirty.get()) {
-            var dialog = new Dialog<ButtonType>();
-            dialog.setTitle("Confirm Cancel Clip");
-            dialog.setContentText("Do wish save the clip before exiting clip editor?");
-            dialog.getDialogPane().getButtonTypes().addAll(
-                    Arrays.asList(ButtonType.YES, ButtonType.NO, ButtonType.CANCEL)
-            );
-            var choice = dialog.showAndWait().orElse(ButtonType.CANCEL);
-            if (choice == ButtonType.CANCEL) {
+            if (saveOrDiscardClip(event,"Do wish save the clip before exiting clip editor?") == ButtonType.CANCEL) {
                 return;
-            }
-            if (choice == ButtonType.YES) {
-                saveClip(event);
             }
         }
         bottomBarPlay.setVisible(true);
@@ -194,13 +222,28 @@ public class MainController {
         playSlider.setValue(embeddedMediaPlayer.status().time() / 1000.0);
     }
 
+    private ButtonType saveOrDiscardClip(Event event, String contentText) {
+        var dialog = new Dialog<ButtonType>();
+        dialog.setTitle("Discard Clip Changes?");
+        dialog.setContentText(contentText);
+        dialog.getDialogPane().getButtonTypes().addAll(
+                Arrays.asList(ButtonType.YES, ButtonType.NO, ButtonType.CANCEL)
+        );
+        var choice = dialog.showAndWait().orElse(ButtonType.CANCEL);
+        if (choice == ButtonType.YES) {
+            saveClip(event);
+        }
+        return choice;
+    }
+
     @FXML
-    public void saveClip(ActionEvent event) {
+    public void saveClip(Event event) {
         clipDirty.setValue(false);
         projectDirty.setValue(true);
         var newClip = new Clip(
                 loadedMedia.get(),
-                clipDescription.orElse(null),
+                clipDescription.map(ClipDescriptionData::getDescription).orElse(null),
+                clipDescription.map(ClipDescriptionData::getRating).orElse(null),
                 rangeSlider.getMin() * 1000.0,
                 rangeSlider.getLowValue() * 1000.0,
                 rangeSlider.getHighValue() * 1000.0,
@@ -293,7 +336,7 @@ public class MainController {
         stage.getIcons()
             .add(new Image(this.getClass().getResourceAsStream( "/icon48.png" )));
 
-        clips.getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
+        files.getSelectionModel().setSelectionMode(SelectionMode.SINGLE);
         files.setCellFactory(listView -> {
             var listCell = new ListCell<File>() {
                 @Override
@@ -318,29 +361,36 @@ public class MainController {
         });
 
         clips.getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
-        clips.setCellFactory(listView -> {
-            var listCell = new ListCell<Clip>() {
-                @Override
-                public void updateItem(Clip item, boolean empty) {
-                    super.updateItem(item, empty);
-                    if (empty) {
-                        setText(null);
-                        setTooltip(null);
-                    } else if (item != null) {
-                        String itemRepresentation = item.itemRepresentation();
-                        setText(itemRepresentation);
-                        setTooltip(new Tooltip(itemRepresentation + (item.description != null ? "\n" + item.description : "")));
+        TableColumn<Clip,String> nameCol = new TableColumn<>("Name");
+        nameCol.setCellValueFactory(row -> new SimpleStringProperty(row.getValue().file.getName()));
+        nameCol.setResizable(true);
+        nameCol.setSortable(false);
+        TableColumn<Clip,Integer> ratingCol = new TableColumn<>("\u2605");
+        ratingCol.setCellValueFactory(row -> new SimpleObjectProperty<>(row.getValue().rating));
+        ratingCol.setMaxWidth(30);
+        ratingCol.setMinWidth(30);
+        ratingCol.setSortable(false);
+        ratingCol.setStyle( "-fx-alignment: center;");
+        clips.getColumns().addAll(nameCol, ratingCol);
+        clips.setRowFactory(listView -> {
+            var tableRow = new TableRow<Clip>();
+
+            tableRow.setOnMouseClicked(event -> {
+                if (event.getClickCount() > 1) {
+                    Clip clickedItem = tableRow.getItem();
+                    if (!isPlayerMode() && clipDirty.get() && editingClip
+                            .map(item -> clickedItem != null && clickedItem != item).orElse(false)) {
+                        if (saveOrDiscardClip(event,"Do wish save the clip before switching to another?" ) != ButtonType.CANCEL) {
+                            loadClip(clickedItem);
+                        }
+                    } else {
+                        loadClip(clickedItem);
                     }
                 }
-            };
-
-            listCell.setOnMouseClicked(event -> {
-                if (event.getClickCount() > 1) {
-                    loadClip(listCell.getItem());
-                }
             });
-            return listCell;
+            return tableRow;
         });
+        nameCol.prefWidthProperty().bind(clips.widthProperty().subtract(50));
 
         embeddedMediaPlayer.videoSurface().set(videoSurfaceForImageView(this.videoImageView));
         embeddedMediaPlayer.events().addMediaPlayerEventListener(new MediaPlayerEventAdapter() {
@@ -358,6 +408,7 @@ public class MainController {
             }
 
             @Override
+
             public void playing(MediaPlayer mediaPlayer) {
                 Platform.runLater(() -> {
                     playPause.setGraphic(PAUSE_ICON);
@@ -499,34 +550,9 @@ public class MainController {
             saveProjectAs(stage);
         });
 
-        renderScript.setOnAction(event -> {
-            File dir = new DirectoryChooser().showDialog(stage);
-            try (Writer runWriter = new BufferedWriter(new FileWriter(new File(dir, "run.sh")));
-                 Writer concatWriter = new BufferedWriter(new FileWriter(new File(dir, "concat_files.txt")))
-            ) {
-                for (Clip clip : clips.getSelectionModel().getSelectedItems()) {
-                    Rectangle2D viewPort = clip.viewportRect;
-                    runWriter.append(String.format("ffmpeg -ss %.2f -i %s -vf \"crop=%d:%d:%d:%d, scale=%d:%d\" -t %.2f %s.mp4\n",
-                            clip.lowValue / 1000,
-                            clip.file,
-                            (int) viewPort.getWidth(),
-                            (int) viewPort.getHeight(),
-                            (int) viewPort.getMinX(),
-                            (int) viewPort.getMinY(),
-                            (int) videoWidth,
-                            (int) videoHeight,
-                            (clip.highValue - clip.lowValue) / 1000,
-                            clip.itemRepresentation()
-                    ));
+        generateVideo.setOnAction(event -> generateVideo(stage));
 
-                    concatWriter.append(String.format("file %s.mp4\n", clip.itemRepresentation()));
-                }
-
-                runWriter.append("ffmpeg -f concat -i concat_files.txt -c copy concatenated.mp4\n");
-            } catch (IOException ex) {
-                ex.printStackTrace(System.err);
-            }
-        });
+        renderScript.setOnAction(event -> renderScript(stage));
 
         saveClip.disableProperty().bind(clipDirty.not());
 
@@ -553,10 +579,183 @@ public class MainController {
                 }
             }
         });
+
+        ChangeListener<Boolean> dirtyClip = (observableValue, oldValue, newValue) -> clipDirty.setValue(true);
+
+        rangeSlider.lowValueChangingProperty().addListener(dirtyClip);
+        rangeSlider.highValueChangingProperty().addListener(dirtyClip);
     }
 
     private boolean isPlayerMode() {
         return bottomBarPlay.isVisible();
+    }
+
+    private Optional<FileFFProbeData> startClipFFProbeMetaFile(File file) {
+        try {
+            return FFprobe.atPath()
+                    .setShowStreams(true)
+                    .setInput(file.getAbsolutePath())
+                    .execute()
+                    .getStreams().stream()
+                    .filter(it -> it.getCodecType() == StreamType.VIDEO)
+                    .findFirst()
+                    .map(FileFFProbeData::new);
+        } catch (Exception ex) {
+            ex.printStackTrace(System.err);
+            Platform.runLater(() -> {
+                        Alert alert = new Alert(Alert.AlertType.ERROR);
+                        alert.setTitle("Error Processing File");
+                        alert.setContentText(
+                                String.format("Could not determine start time for video %s\n" +
+                                        "Clips within may having inaccuracies in starting time\n" +
+                                        "Error %s", file.getAbsolutePath(), ex.getMessage()
+                                )
+                        );
+                        alert.showAndWait();
+                    });
+        }
+        return Optional.empty();
+    }
+
+    private Dialog createGenerateDialog(Label videoLabel, ProgressBar progressBar) {
+        Dialog<Void> dialog = new Dialog<>();
+        dialog.setTitle("Generate Video");
+        dialog.setHeaderText("Generating Video...");
+        dialog.getDialogPane().getButtonTypes().add(ButtonType.OK);
+        HBox hbox = new HBox();
+        hbox.getChildren().add(videoLabel);
+        hbox.getChildren().add(progressBar);
+        dialog.getDialogPane().setContent(hbox);
+        return dialog;
+    }
+
+    private void generateVideo(Stage stage) {
+        File dir = new DirectoryChooser().showDialog(stage);
+        File concatFile = new File(dir, "concat_files.txt");
+
+        Label videoLabel = new Label();
+        videoLabel.setMinWidth(275.0);
+        ProgressBar progressBar = new ProgressBar();
+        progressBar.setMinWidth(125.0);
+        Dialog dialog = createGenerateDialog(videoLabel, progressBar);
+        dialog.getDialogPane().lookupButton(ButtonType.OK).setDisable(true);
+        dialog.show();
+
+        Task<Void> task = new Task<>() {
+            @Override
+            protected Void call() throws Exception {
+                double totalFrameCount = 0;
+                try (Writer concatWriter = new BufferedWriter(new FileWriter(concatFile))) {
+                    Map<File, Optional<FileFFProbeData>> fileFFProbeDataMap = new HashMap<>();
+                    int clipCount = 0;
+                    int total = clips.getSelectionModel().getSelectedItems().size();
+                    for (Clip clip : clips.getSelectionModel().getSelectedItems()) {
+                        String headerText = String.format("Generating Clip Video (%d of %d).", ++clipCount, total);
+                        Platform.runLater(() -> {
+                            dialog.setHeaderText(headerText);
+                            videoLabel.setText(clip.itemRepresentation());
+                            progressBar.setProgress(0.0);
+                        });
+                        Optional<FileFFProbeData> fileMeta = fileFFProbeDataMap.computeIfAbsent(clip.file, MainController.this::startClipFFProbeMetaFile);
+                        float startTime = fileMeta.map(FileFFProbeData::getStartTime).orElse(0.0f);
+                        double frameRate = fileMeta.map(FileFFProbeData::getAvgFrameRate).orElse(29.97);
+                        double clipDurationSeconds = (clip.highValue - clip.lowValue) / 1000;
+                        double estimatedFrameCount = clipDurationSeconds * frameRate;
+                        totalFrameCount += estimatedFrameCount;
+                        Rectangle2D viewPort = clip.viewportRect;
+                        FFmpeg.atPath()
+                                .addInput(
+                                        UrlInput.fromUrl(clip.file.getAbsolutePath())
+                                                .setPosition(Math.max(0.0f, (clip.lowValue / 1000) - startTime), TimeUnit.SECONDS)
+                                                .setDuration(clipDurationSeconds, TimeUnit.SECONDS)
+                                )
+                                .setProgressListener(progress -> {
+                                    fileMeta.ifPresent(fm -> {
+                                        Platform.runLater(() -> progressBar.setProgress((float) progress.getFrame() / estimatedFrameCount));
+                                    });
+                                })
+                                .setFilter(StreamType.VIDEO,
+                                        String.format("crop=%d:%d:%d:%d, scale=%d:%d",
+                                                (int) viewPort.getWidth(),
+                                                (int) viewPort.getHeight(),
+                                                (int) viewPort.getMinX(),
+                                                (int) viewPort.getMinY(),
+                                                (int) videoWidth,
+                                                (int) videoHeight))
+                                .setOverwriteOutput(true)
+                                .addOutput(
+                                        UrlOutput.toUrl(new File(dir, clip.itemRepresentation() + ".mp4").getAbsolutePath())
+                                )
+                                .execute();
+
+                        concatWriter.append(String.format("file '%s.mp4'\n", dir.getAbsolutePath() + File.separatorChar + clip.itemRepresentation()));
+                    }
+                } catch (Exception ex) {
+                    ex.printStackTrace(System.err);
+                }
+
+                Platform.runLater(() -> {
+                    dialog.setHeaderText("Generating Final Concatenated Video");
+                    videoLabel.setText("concatenated.mp4");
+                    progressBar.setProgress(0.0);
+                });
+
+                final double finalTotalFrameCount = totalFrameCount;
+
+                FFmpeg.atPath()
+                        .addInput(
+                                UrlInput.fromUrl(concatFile.getAbsolutePath())
+                                        .addArguments("-f", "concat")
+                                        .addArguments("-safe", "0")
+                        )
+                        .setProgressListener(progress -> {
+                            Platform.runLater(() -> progressBar.setProgress((float) progress.getFrame() / finalTotalFrameCount));
+                        })
+                        .addArguments("-c", "copy")
+                        .setOverwriteOutput(true)
+                        .addOutput(UrlOutput.toUrl(new File(dir, "concatenated.mp4").getAbsolutePath()))
+                        .execute();
+                return null;
+            }
+        };
+        task.setOnSucceeded(event -> {
+            progressBar.setProgress(1.0);
+            dialog.setHeaderText("Video Generation Complete");
+            dialog.getDialogPane().lookupButton(ButtonType.OK).setDisable(false);
+        });
+        new Thread(task).start();
+    }
+
+    private void renderScript(Stage stage) {
+        File dir = new DirectoryChooser().showDialog(stage);
+        try (Writer runWriter = new BufferedWriter(new FileWriter(new File(dir, "run.sh")));
+             Writer concatWriter = new BufferedWriter(new FileWriter(new File(dir, "concat_files.txt")))
+        ) {
+            Map<File, Optional<FileFFProbeData>> fileFFProbeDataMap = new HashMap<>();
+            for (Clip clip : clips.getSelectionModel().getSelectedItems()) {
+                Optional<FileFFProbeData> fileMeta = fileFFProbeDataMap.computeIfAbsent(clip.file, MainController.this::startClipFFProbeMetaFile);
+                float startTime = fileMeta.map(FileFFProbeData::getStartTime).orElse(0.0f);
+                Rectangle2D viewPort = clip.viewportRect;
+                runWriter.append(String.format("ffmpeg -n -ss %.2f -i \"%s\" -vf \"crop=%d:%d:%d:%d, scale=%d:%d\" -t %.2f %s.mp4\n",
+                        Math.max(0.0f, (clip.lowValue / 1000) - startTime),
+                        clip.file,
+                        (int) viewPort.getWidth(),
+                        (int) viewPort.getHeight(),
+                        (int) viewPort.getMinX(),
+                        (int) viewPort.getMinY(),
+                        (int) videoWidth,
+                        (int) videoHeight,
+                        (clip.highValue - clip.lowValue) / 1000,
+                        clip.itemRepresentation()
+                ));
+
+                concatWriter.append(String.format("file %s.mp4\n", clip.itemRepresentation()));
+            }
+
+            runWriter.append("ffmpeg -f concat -i concat_files.txt -c copy concatenated.mp4\n");
+        } catch (IOException ex) {
+            ex.printStackTrace(System.err);
+        }
     }
 
     private void saveProjectFile(File file) {
@@ -608,7 +807,7 @@ public class MainController {
         rangeSlider.setLowValue(lowValue / 1000.0);
         rangeSlider.setHighValue(highValue / 1000.0);
 
-        this.clipDescription = editingClip.map(clip -> clip.description);
+        this.clipDescription = editingClip.map(clip -> new ClipDescriptionData(clip.description, clip.rating));
 
         this.editingClip = editingClip;
     }
@@ -661,9 +860,28 @@ public class MainController {
         mediaPlayerFactory.release();
     }
 
+    public class ClipDescriptionData {
+        public final String description;
+        public final Integer rating;
+
+        public ClipDescriptionData(String description, Integer rating) {
+            this.description = description;
+            this.rating = rating;
+        }
+
+        public String getDescription() {
+            return description;
+        }
+
+        public Integer getRating() {
+            return rating;
+        }
+    }
+
     public static class Clip {
         public final File file;
         public final String description;
+        public final Integer rating;
         public final double minValue;
         public final double lowValue;
         public final double highValue;
@@ -674,6 +892,7 @@ public class MainController {
         public Clip(
             @JsonProperty("file") File file,
             @JsonProperty("description") String description,
+            @JsonProperty("rating") Integer rating,
             @JsonProperty("minValue") double minValue,
             @JsonProperty("lowValue") double lowValue,
             @JsonProperty("highValue") double highValue,
@@ -681,6 +900,7 @@ public class MainController {
             @JsonProperty("viewportRect") Rectangle2D viewportRect) {
             this.file = file;
             this.description = description;
+            this.rating = rating;
             this.minValue = minValue;
             this.lowValue = lowValue;
             this.highValue = highValue;
@@ -695,13 +915,31 @@ public class MainController {
         }
     }
 
+    public static class FileFFProbeData {
+        private final float startTime;
+        private final double avgFrameRate;
+
+        public FileFFProbeData(Stream stream) {
+            this.startTime = stream.getStartTime();
+            this.avgFrameRate = stream.getAvgFrameRate().doubleValue();
+        }
+
+        public float getStartTime() {
+            return startTime;
+        }
+
+        public double getAvgFrameRate() {
+            return avgFrameRate;
+        }
+    }
+
     public static class RectangleDeserializer extends StdDeserializer<Rectangle2D> {
         public RectangleDeserializer(Class<?> vc) {
             super(vc);
         }
 
         @Override
-        public Rectangle2D deserialize(JsonParser jsonParser, DeserializationContext deserializationContext) throws IOException, JacksonException {
+        public Rectangle2D deserialize(JsonParser jsonParser, DeserializationContext deserializationContext) throws IOException {
             JsonNode node = jsonParser.getCodec().readTree(jsonParser);
             return new Rectangle2D(
                     node.get("minX").doubleValue(),

@@ -4,6 +4,7 @@
 <?import javafx.scene.image.ImageView?>
 <?import javafx.scene.layout.*?>
 <?import org.controlsfx.control.RangeSlider?>
+
 <VBox xmlns:fx="http://javafx.com/fxml" fx:controller="org.daltontf1212.MainController">
     <MenuBar>
         <Menu text="File">
@@ -13,6 +14,7 @@
             <MenuItem text="Save Project As" fx:id="saveProjectAs"/>
         </Menu>
         <Menu text="Run">
+            <MenuItem text="Generate Video" fx:id="generateVideo"/>
             <MenuItem text="Render Script" fx:id="renderScript"/>
         </Menu>
     </MenuBar>
@@ -31,7 +33,7 @@
                         <left><Label text="Clips"/></left>
                         <right><Button id="sortClips" onAction="#sortClips"/></right>
                     </BorderPane>
-                    <ListView VBox.vgrow="ALWAYS" fx:id="clips" onKeyPressed="#keyPressedClips"/>
+                    <TableView VBox.vgrow="ALWAYS" fx:id="clips" onKeyPressed="#keyPressedClips"/>
                 </VBox>
             </SplitPane>
             <VBox fx:id="videoPane">
@@ -41,12 +43,12 @@
                     <Button id="skipBackward" onAction="#skipBackward"/>
                     <Button fx:id="playPause" onAction="#playPause"/>
                     <Button id="skipForward" onAction="#skipForward"/>
-                    <Slider HBox.hgrow="ALWAYS" showTickLabels="true" showTickMarks="true" majorTickUnit="60" fx:id="playSlider"/>
+                    <Slider fx:id="playSlider" HBox.hgrow="ALWAYS" showTickLabels="true" showTickMarks="true" majorTickUnit="60"/>
                     <Button id="addClip" onAction="#addClip"/>
                 </HBox>
                 <HBox visible="false" fx:id="bottomBarClip">
                     <Button fx:id="clipPlayStop" onAction="#clipPlayStop"/>
-                    <RangeSlider HBox.hgrow="ALWAYS" showTickLabels="true" showTickMarks="true" majorTickUnit="1" fx:id="rangeSlider"/>
+                    <RangeSlider fx:id="rangeSlider" HBox.hgrow="ALWAYS" showTickLabels="true" showTickMarks="true" majorTickUnit="1"/>
                     <Button id="clipSetStart" onAction="#clipSetStart"/>
                     <Button id="clipSetStop" onAction="#clipSetStop"/>
                     <Button id="clipZoomIn" onAction="#clipZoomIn"/>
