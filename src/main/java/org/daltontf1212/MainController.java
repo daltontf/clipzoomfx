@@ -2,7 +2,6 @@ package org.daltontf1212;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.core.JacksonException;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationContext;
@@ -22,6 +21,7 @@ import javafx.beans.property.SimpleBooleanProperty;
 import javafx.beans.property.SimpleObjectProperty;
 import javafx.beans.property.SimpleStringProperty;
 import javafx.beans.value.ChangeListener;
+import javafx.collections.ListChangeListener;
 import javafx.collections.ObservableList;
 import javafx.concurrent.Task;
 import javafx.event.ActionEvent;
@@ -42,6 +42,7 @@ import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 import org.controlsfx.control.RangeSlider;
 import uk.co.caprica.vlcj.factory.MediaPlayerFactory;
+import uk.co.caprica.vlcj.player.base.LibVlcConst;
 import uk.co.caprica.vlcj.player.base.MediaPlayer;
 import uk.co.caprica.vlcj.player.base.MediaPlayerEventAdapter;
 import uk.co.caprica.vlcj.player.embedded.EmbeddedMediaPlayer;
@@ -61,34 +62,33 @@ public class MainController {
     public final ImageView PAUSE_ICON = new ImageView("pause.png");
     public final ImageView STOP_ICON = new ImageView("stop.png");
 
-    private Lazy<FileChooser> lazyFileChooser = Lazy.of(() -> {
+    private final MediaPlayerFactory mediaPlayerFactory;
+    private final EmbeddedMediaPlayer embeddedMediaPlayer;
+
+    private final Lazy<FileChooser> lazyFileChooser = Lazy.of(() -> {
         var chooser = new FileChooser();
         chooser.getExtensionFilters().add(
                 new FileChooser.ExtensionFilter("Video Files",
-                "*.mp4", "*.mts", "*.MTS", "*.m4v", "*.m2ts", "*.avi"));
+                        "*.mp4", "*.mts", "*.MTS", "*.m4v", "*.m2ts", "*.avi"));
 
         return chooser;
     });
-    private final MediaPlayerFactory mediaPlayerFactory;
 
     @FXML private MenuItem addVideo;
     @FXML private MenuItem loadProject;
+    @FXML private MenuItem closeProject;
     @FXML private MenuItem saveProject;
     @FXML private MenuItem saveProjectAs;
     @FXML private MenuItem generateVideo;
-    @FXML private MenuItem renderScript;
+    //@FXML private MenuItem renderScript;
     @FXML private ListView<File> files;
     @FXML private TableView<Clip> clips;
     @FXML private VBox videoPane;
     @FXML private ImageView videoImageView;
-    private final EmbeddedMediaPlayer embeddedMediaPlayer;
-
     @FXML private HBox bottomBarPlay;
     @FXML private Button playPause;
     @FXML private Slider playSlider;
-
     @FXML private StackPane bottomPane;
-
     @FXML private HBox bottomBarClip;
     @FXML private Button clipPlayStop;
     @FXML private Button saveClip;
@@ -96,12 +96,13 @@ public class MainController {
 
     private static final int MIN_PIXELS = 200;
 
+    private final SimpleBooleanProperty projectDirty = new SimpleBooleanProperty(false);
+    private final SimpleBooleanProperty clipDirty = new SimpleBooleanProperty(false);
+    private final SimpleObjectProperty<File> projectFile = new SimpleObjectProperty<>(null);
+
     private Optional<File> loadedMedia = Optional.empty();
     private Optional<Clip> editingClip = Optional.empty();
     private Optional<ClipDescriptionData> clipDescription = Optional.empty();
-    private SimpleBooleanProperty projectDirty = new SimpleBooleanProperty(false);
-    private SimpleBooleanProperty clipDirty = new SimpleBooleanProperty(false);
-    private SimpleObjectProperty<File> projectFile = new SimpleObjectProperty<>(null);
 
     public MainController() {
         this.mediaPlayerFactory = new MediaPlayerFactory();
@@ -130,6 +131,7 @@ public class MainController {
             embeddedMediaPlayer.controls().pause();
         } else {
             embeddedMediaPlayer.controls().play();
+            embeddedMediaPlayer.audio().setVolume(LibVlcConst.MAX_VOLUME / 2);
         }
     }
 
@@ -220,6 +222,7 @@ public class MainController {
         bottomBarClip.setVisible(false);
 
         playSlider.setValue(embeddedMediaPlayer.status().time() / 1000.0);
+        resetViewport();
     }
 
     private ButtonType saveOrDiscardClip(Event event, String contentText) {
@@ -281,12 +284,11 @@ public class MainController {
         double highValue = rangeSlider.getHighValue();
         double fullRange = maxValue - minValue;
         double rangeRange = highValue - lowValue;
-        if (fullRange < 300) {
-            double midPoint = lowValue + rangeRange / 2;
-            double newRange = fullRange * 1.25;
-            rangeSlider.setMin(Math.max(0.0, midPoint - newRange / 2));
-            rangeSlider.setMax(Math.max(playSlider.getMax() / 1000.0, midPoint + newRange / 2));
-        }
+        double midPoint = lowValue + rangeRange / 2;
+        double newRange = fullRange * 1.25;
+        double newMin = Math.max(0.0, midPoint - newRange / 2);
+        rangeSlider.setMin(newMin);
+        rangeSlider.setMax(Math.min(playSlider.getMax(), newMin + newRange));
     }
 
     @FXML
@@ -297,11 +299,12 @@ public class MainController {
         double highValue = rangeSlider.getHighValue();
         double fullRange = maxValue - minValue;
         double rangeRange = highValue - lowValue;
-        if (fullRange > 15) {
+        if (fullRange > 1) {
             double midPoint = lowValue + rangeRange / 2;
             double newRange = fullRange / 1.25;
-            rangeSlider.setMin(midPoint - newRange / 2);
-            rangeSlider.setMax(midPoint + newRange / 2);
+            double newMin = Math.max(midPoint - newRange / 2, 0.0);
+            rangeSlider.setMin(newMin);
+            rangeSlider.setMax(newMin + newRange);
         }
     }
 
@@ -339,13 +342,18 @@ public class MainController {
         files.getSelectionModel().setSelectionMode(SelectionMode.SINGLE);
         files.setCellFactory(listView -> {
             var listCell = new ListCell<File>() {
+                private final Tooltip tooltip = new Tooltip();
+
                 @Override
                 public void updateItem(File item, boolean empty) {
                     super.updateItem(item, empty);
+                    setTooltip(tooltip);
                     if (empty) {
                         setText(null);
+                        tooltip.setText(null);
                     } else if (item != null) {
                         setText(item.getName());
+                        tooltip.setText(item.getName());
                     }
                 }
             };
@@ -362,7 +370,7 @@ public class MainController {
 
         clips.getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
         TableColumn<Clip,String> nameCol = new TableColumn<>("Name");
-        nameCol.setCellValueFactory(row -> new SimpleStringProperty(row.getValue().file.getName()));
+        nameCol.setCellValueFactory(row -> new SimpleStringProperty(row.getValue().itemRepresentation()));
         nameCol.setResizable(true);
         nameCol.setSortable(false);
         TableColumn<Clip,Integer> ratingCol = new TableColumn<>("\u2605");
@@ -373,7 +381,16 @@ public class MainController {
         ratingCol.setStyle( "-fx-alignment: center;");
         clips.getColumns().addAll(nameCol, ratingCol);
         clips.setRowFactory(listView -> {
-            var tableRow = new TableRow<Clip>();
+            var tableRow = new TableRow<Clip>() {
+                private final Tooltip tooltip = new Tooltip();
+
+                @Override
+                protected void updateItem(Clip clip, boolean b) {
+                    super.updateItem(clip, b);
+                    setTooltip(tooltip);
+                    tooltip.setText(clip != null ? clip.itemRepresentation() : null);
+                }
+            };
 
             tableRow.setOnMouseClicked(event -> {
                 if (event.getClickCount() > 1) {
@@ -400,7 +417,7 @@ public class MainController {
                     if (isPlayerMode()) {
                         videoHeight = mediaPlayer.video().videoDimension().getHeight();
                         videoWidth = mediaPlayer.video().videoDimension().getWidth();
-                        reset(videoImageView, videoWidth, videoHeight);
+                        resetViewport();
                     }
                     // If we exit clip mode, it is already set.
                     playSlider.setMax(mediaPlayer.status().length() / 1000.0);
@@ -474,7 +491,7 @@ public class MainController {
             Rectangle2D viewport = videoImageView.getViewport();
 
             double scale = clamp(Math.pow(1.001, delta),
-                    // don't scale so we're zoomed in to fewer than MIN_PIXELS in any direction:
+                    // don't scale, so we're zoomed in to fewer than MIN_PIXELS in any direction:
                     Math.min(MIN_PIXELS / viewport.getWidth(), MIN_PIXELS / viewport.getHeight()),
 
                     // don't scale so that we're bigger than image dimensions:
@@ -501,9 +518,10 @@ public class MainController {
         });
 
         addVideo.setOnAction(event -> {
-            List<File> choosen = lazyFileChooser.get().showOpenMultipleDialog(stage);
-            if (choosen != null) {
-                files.getItems().addAll(choosen);
+            List<File> chosen = lazyFileChooser.get().showOpenMultipleDialog(stage);
+            if (chosen != null) {
+                files.getItems().addAll(chosen);
+                lazyFileChooser.get().setInitialDirectory(chosen.get(chosen.size() - 1).getParentFile());
             }
             projectDirty.setValue(true);
         });
@@ -530,10 +548,24 @@ public class MainController {
                     }));
                 } catch (Exception ex) {
                     ex.printStackTrace(System.err);
+                    showAlert("Unexpected Error", "Error loading project: " + ex.getMessage());
                 }
                 projectDirty.setValue(false);
                 projectFile.setValue(file);
             }
+        });
+
+        closeProject.setOnAction(event -> {
+            embeddedMediaPlayer.controls().stop();
+
+            files.getItems().clear();
+            clips.getItems().clear();
+
+            bottomBarPlay.setVisible(true);
+            bottomBarClip.setVisible(false);
+
+            projectDirty.setValue(false);
+            projectFile.setValue(null);
         });
 
         saveProject.setOnAction(event -> {
@@ -541,18 +573,30 @@ public class MainController {
         });
 
         projectDirty.addListener(
-            (observableValue, oldValue, newValue) -> {
-                saveProject.setDisable(projectFile.get() == null || !newValue);
+            (observableValue, wasDirty, nowDirty) -> {
+                saveProject.setDisable(!nowDirty);
+                saveProjectAs.setDisable(!nowDirty);
+                closeProject.setDisable(projectFile.get() == null && !nowDirty);
             });
         saveProject.setDisable(true);
+        closeProject.setDisable(true);
 
         saveProjectAs.setOnAction(event -> {
             saveProjectAs(stage);
         });
+        saveProjectAs.setDisable(true);
 
         generateVideo.setOnAction(event -> generateVideo(stage));
+        //renderScript.setOnAction(event -> renderScript(stage));
 
-        renderScript.setOnAction(event -> renderScript(stage));
+        generateVideo.setDisable(true);
+        //renderScript.setDisable(true);
+
+        clips.getItems().addListener((ListChangeListener<Clip>) change -> {
+            boolean clipCountIsZero = clips.getItems().size() == 0;
+            generateVideo.setDisable(clipCountIsZero);
+            //renderScript.setDisable(clipCountIsZero);
+        });
 
         saveClip.disableProperty().bind(clipDirty.not());
 
@@ -602,26 +646,28 @@ public class MainController {
                     .map(FileFFProbeData::new);
         } catch (Exception ex) {
             ex.printStackTrace(System.err);
-            Platform.runLater(() -> {
-                        Alert alert = new Alert(Alert.AlertType.ERROR);
-                        alert.setTitle("Error Processing File");
-                        alert.setContentText(
-                                String.format("Could not determine start time for video %s\n" +
-                                        "Clips within may having inaccuracies in starting time\n" +
-                                        "Error %s", file.getAbsolutePath(), ex.getMessage()
-                                )
-                        );
-                        alert.showAndWait();
-                    });
+            showAlert("Error Processing File",
+                String.format("Could not determine start time for video %s\n" +
+                              "Clips within may having inaccuracies in starting time\n" +
+                              "Error %s", file.getAbsolutePath(), ex.getMessage()));
         }
         return Optional.empty();
     }
 
-    private Dialog createGenerateDialog(Label videoLabel, ProgressBar progressBar) {
-        Dialog<Void> dialog = new Dialog<>();
+    private void showAlert(String title, String contentText) {
+        Platform.runLater(() -> {
+            Alert alert = new Alert(Alert.AlertType.ERROR);
+            alert.setTitle(title);
+            alert.setContentText(contentText);
+            alert.showAndWait();
+        });
+    }
+
+    private Dialog<ButtonType> createGenerateDialog(Label videoLabel, ProgressBar progressBar) {
+        Dialog<ButtonType> dialog = new Dialog<>();
         dialog.setTitle("Generate Video");
         dialog.setHeaderText("Generating Video...");
-        dialog.getDialogPane().getButtonTypes().add(ButtonType.OK);
+        dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
         HBox hbox = new HBox();
         hbox.getChildren().add(videoLabel);
         hbox.getChildren().add(progressBar);
@@ -629,27 +675,56 @@ public class MainController {
         return dialog;
     }
 
+    private String getFileExtension(File file) {
+        String fileName = file.getName();
+        int index = fileName.lastIndexOf(".");
+        if (index >= 0 && index < fileName.length()) {
+            return fileName.substring(index);
+        }
+        return null;
+    }
+
     private void generateVideo(Stage stage) {
+        if (clips.getSelectionModel().getSelectedItems().isEmpty()) {
+            showAlert("Error", "No Clips Selected");
+            return;
+        }
+
+        String extension = getFileExtension(clips.getSelectionModel().getSelectedItems().get(0).file);
+
+        if (extension == null) {
+            showAlert("Error", "File extension can not be determined");
+            return;
+        }
+        String concatenatedFileName = "concatenated" + extension;
+
         File dir = new DirectoryChooser().showDialog(stage);
         File concatFile = new File(dir, "concat_files.txt");
 
         Label videoLabel = new Label();
-        videoLabel.setMinWidth(275.0);
         ProgressBar progressBar = new ProgressBar();
+        videoLabel.setMinWidth(325.0);
         progressBar.setMinWidth(125.0);
-        Dialog dialog = createGenerateDialog(videoLabel, progressBar);
+        Dialog<ButtonType> dialog = createGenerateDialog(videoLabel, progressBar);
         dialog.getDialogPane().lookupButton(ButtonType.OK).setDisable(true);
+        dialog.getDialogPane().lookupButton(ButtonType.CANCEL).setDisable(false);
+
         dialog.show();
 
         Task<Void> task = new Task<>() {
             @Override
-            protected Void call() throws Exception {
+            protected Void call() {
                 double totalFrameCount = 0;
+                try {
                 try (Writer concatWriter = new BufferedWriter(new FileWriter(concatFile))) {
                     Map<File, Optional<FileFFProbeData>> fileFFProbeDataMap = new HashMap<>();
                     int clipCount = 0;
                     int total = clips.getSelectionModel().getSelectedItems().size();
                     for (Clip clip : clips.getSelectionModel().getSelectedItems()) {
+                        if (!dialog.isShowing()) {
+                            Platform.runLater(() -> dialog.setHeaderText("Cancelling..."));
+                            return null;
+                        }
                         String headerText = String.format("Generating Clip Video (%d of %d).", ++clipCount, total);
                         Platform.runLater(() -> {
                             dialog.setHeaderText(headerText);
@@ -663,6 +738,7 @@ public class MainController {
                         double estimatedFrameCount = clipDurationSeconds * frameRate;
                         totalFrameCount += estimatedFrameCount;
                         Rectangle2D viewPort = clip.viewportRect;
+                        String outputFile = new File(dir, clip.itemRepresentation() + extension).getAbsolutePath();
                         FFmpeg.atPath()
                                 .addInput(
                                         UrlInput.fromUrl(clip.file.getAbsolutePath())
@@ -675,7 +751,7 @@ public class MainController {
                                     });
                                 })
                                 .setFilter(StreamType.VIDEO,
-                                        String.format("crop=%d:%d:%d:%d, scale=%d:%d",
+                                        String.format("crop=%d:%d:%d:%d, scale=%d:%d, yadif",
                                                 (int) viewPort.getWidth(),
                                                 (int) viewPort.getHeight(),
                                                 (int) viewPort.getMinX(),
@@ -683,20 +759,20 @@ public class MainController {
                                                 (int) videoWidth,
                                                 (int) videoHeight))
                                 .setOverwriteOutput(true)
+                                .addArguments("-c:v", "libx264")
+                                .addArguments("-preset", "slow")
                                 .addOutput(
-                                        UrlOutput.toUrl(new File(dir, clip.itemRepresentation() + ".mp4").getAbsolutePath())
+                                        UrlOutput.toUrl(outputFile)
                                 )
                                 .execute();
 
-                        concatWriter.append(String.format("file '%s.mp4'\n", dir.getAbsolutePath() + File.separatorChar + clip.itemRepresentation()));
+                        concatWriter.append(String.format("file '%s'\n", outputFile));
                     }
-                } catch (Exception ex) {
-                    ex.printStackTrace(System.err);
                 }
 
                 Platform.runLater(() -> {
                     dialog.setHeaderText("Generating Final Concatenated Video");
-                    videoLabel.setText("concatenated.mp4");
+                    videoLabel.setText(concatenatedFileName);
                     progressBar.setProgress(0.0);
                 });
 
@@ -713,50 +789,56 @@ public class MainController {
                         })
                         .addArguments("-c", "copy")
                         .setOverwriteOutput(true)
-                        .addOutput(UrlOutput.toUrl(new File(dir, "concatenated.mp4").getAbsolutePath()))
+                        .addOutput(UrlOutput.toUrl(new File(dir, concatenatedFileName).getAbsolutePath()))
                         .execute();
+                } catch (Exception ex) {
+                    ex.printStackTrace(System.err);
+                    showAlert("Error Generating Clips",
+                            String.format("Error encountered generating clips: %s", ex.getMessage()));
+                }
                 return null;
             }
         };
         task.setOnSucceeded(event -> {
             progressBar.setProgress(1.0);
             dialog.setHeaderText("Video Generation Complete");
+            dialog.getDialogPane().lookupButton(ButtonType.CANCEL).setDisable(true);
             dialog.getDialogPane().lookupButton(ButtonType.OK).setDisable(false);
         });
         new Thread(task).start();
     }
 
-    private void renderScript(Stage stage) {
-        File dir = new DirectoryChooser().showDialog(stage);
-        try (Writer runWriter = new BufferedWriter(new FileWriter(new File(dir, "run.sh")));
-             Writer concatWriter = new BufferedWriter(new FileWriter(new File(dir, "concat_files.txt")))
-        ) {
-            Map<File, Optional<FileFFProbeData>> fileFFProbeDataMap = new HashMap<>();
-            for (Clip clip : clips.getSelectionModel().getSelectedItems()) {
-                Optional<FileFFProbeData> fileMeta = fileFFProbeDataMap.computeIfAbsent(clip.file, MainController.this::startClipFFProbeMetaFile);
-                float startTime = fileMeta.map(FileFFProbeData::getStartTime).orElse(0.0f);
-                Rectangle2D viewPort = clip.viewportRect;
-                runWriter.append(String.format("ffmpeg -n -ss %.2f -i \"%s\" -vf \"crop=%d:%d:%d:%d, scale=%d:%d\" -t %.2f %s.mp4\n",
-                        Math.max(0.0f, (clip.lowValue / 1000) - startTime),
-                        clip.file,
-                        (int) viewPort.getWidth(),
-                        (int) viewPort.getHeight(),
-                        (int) viewPort.getMinX(),
-                        (int) viewPort.getMinY(),
-                        (int) videoWidth,
-                        (int) videoHeight,
-                        (clip.highValue - clip.lowValue) / 1000,
-                        clip.itemRepresentation()
-                ));
-
-                concatWriter.append(String.format("file %s.mp4\n", clip.itemRepresentation()));
-            }
-
-            runWriter.append("ffmpeg -f concat -i concat_files.txt -c copy concatenated.mp4\n");
-        } catch (IOException ex) {
-            ex.printStackTrace(System.err);
-        }
-    }
+//    private void renderScript(Stage stage) {
+//        File dir = new DirectoryChooser().showDialog(stage);
+//        try (Writer runWriter = new BufferedWriter(new FileWriter(new File(dir, "run.sh")));
+//             Writer concatWriter = new BufferedWriter(new FileWriter(new File(dir, "concat_files.txt")))
+//        ) {
+//            Map<File, Optional<FileFFProbeData>> fileFFProbeDataMap = new HashMap<>();
+//            for (Clip clip : clips.getSelectionModel().getSelectedItems()) {
+//                Optional<FileFFProbeData> fileMeta = fileFFProbeDataMap.computeIfAbsent(clip.file, MainController.this::startClipFFProbeMetaFile);
+//                float startTime = fileMeta.map(FileFFProbeData::getStartTime).orElse(0.0f);
+//                Rectangle2D viewPort = clip.viewportRect;
+//                runWriter.append(String.format("ffmpeg -n -ss %.2f -i \"%s\" -vf \"crop=%d:%d:%d:%d, scale=%d:%d\" -t %.2f %s.mp4\n",
+//                        Math.max(0.0f, (clip.lowValue / 1000) - startTime),
+//                        clip.file,
+//                        (int) viewPort.getWidth(),
+//                        (int) viewPort.getHeight(),
+//                        (int) viewPort.getMinX(),
+//                        (int) viewPort.getMinY(),
+//                        (int) videoWidth,
+//                        (int) videoHeight,
+//                        (clip.highValue - clip.lowValue) / 1000,
+//                        clip.itemRepresentation()
+//                ));
+//
+//                concatWriter.append(String.format("file %s.mp4\n", clip.itemRepresentation()));
+//            }
+//
+//            runWriter.append("ffmpeg -f concat -i concat_files.txt -c copy concatenated.mp4\n");
+//        } catch (IOException ex) {
+//            ex.printStackTrace(System.err);
+//        }
+//    }
 
     private void saveProjectFile(File file) {
         ObjectMapper mapper = new ObjectMapper();
@@ -770,6 +852,7 @@ public class MainController {
             projectFile.setValue(file);
         } catch (Exception ex) {
             ex.printStackTrace(System.err);
+            showAlert("Unexpected Error", "Could not save file: " + ex.getMessage());
         }
     }
 
@@ -784,6 +867,10 @@ public class MainController {
                         "*.json"));
         File file = fileChooser.showSaveDialog(stage);
         if (file != null) {
+            if (!file.getName().contains(".")) {
+                file = new File(file.getParent(), file.getName() + ".json");
+            }
+
             saveProjectFile(file);
         }
     }
@@ -813,8 +900,8 @@ public class MainController {
     }
 
     // reset to the top left:
-    private void reset(ImageView imageView, double width, double height) {
-        imageView.setViewport(new Rectangle2D(0, 0, width, height));
+    private void resetViewport() {
+        videoImageView.setViewport(new Rectangle2D(0, 0, videoWidth, videoHeight));
     }
 
     // shift the viewport of the imageView by the specified delta, clamping so
@@ -860,7 +947,7 @@ public class MainController {
         mediaPlayerFactory.release();
     }
 
-    public class ClipDescriptionData {
+    public static class ClipDescriptionData {
         public final String description;
         public final Integer rating;
 
@@ -903,6 +990,7 @@ public class MainController {
             this.rating = rating;
             this.minValue = minValue;
             this.lowValue = lowValue;
+
             this.highValue = highValue;
             this.maxValue = maxValue;
             this.viewportRect = viewportRect;

@@ -10,12 +10,13 @@
         <Menu text="File">
             <MenuItem text="Add Video(s)" fx:id="addVideo"/>
             <MenuItem text="Load Project" fx:id="loadProject"/>
+            <MenuItem text="Close Project" fx:id="closeProject"/>
             <MenuItem text="Save Project" fx:id="saveProject"/>
             <MenuItem text="Save Project As" fx:id="saveProjectAs"/>
         </Menu>
         <Menu text="Run">
             <MenuItem text="Generate Video" fx:id="generateVideo"/>
-            <MenuItem text="Render Script" fx:id="renderScript"/>
+<!--            <MenuItem text="Render Script" fx:id="renderScript"/>-->
         </Menu>
     </MenuBar>
     <SplitPane VBox.vgrow="ALWAYS" dividerPositions="0.15">
@@ -48,7 +49,7 @@
                 </HBox>
                 <HBox visible="false" fx:id="bottomBarClip">
                     <Button fx:id="clipPlayStop" onAction="#clipPlayStop"/>
-                    <RangeSlider fx:id="rangeSlider" HBox.hgrow="ALWAYS" showTickLabels="true" showTickMarks="true" majorTickUnit="1"/>
+                    <RangeSlider fx:id="rangeSlider" HBox.hgrow="ALWAYS" showTickLabels="true" showTickMarks="true" majorTickUnit="5"/>
                     <Button id="clipSetStart" onAction="#clipSetStart"/>
                     <Button id="clipSetStop" onAction="#clipSetStop"/>
                     <Button id="clipZoomIn" onAction="#clipZoomIn"/>
