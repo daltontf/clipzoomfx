@@ -16,7 +16,6 @@
         </Menu>
         <Menu text="Run">
             <MenuItem text="Generate Video" fx:id="generateVideo"/>
-<!--            <MenuItem text="Render Script" fx:id="renderScript"/>-->
         </Menu>
     </MenuBar>
     <SplitPane VBox.vgrow="ALWAYS" dividerPositions="0.15">

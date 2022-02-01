@@ -21,17 +21,39 @@ import javafx.beans.property.SimpleBooleanProperty;
 import javafx.beans.property.SimpleObjectProperty;
 import javafx.beans.property.SimpleStringProperty;
 import javafx.beans.value.ChangeListener;
+import javafx.beans.value.ObservableValue;
 import javafx.collections.ListChangeListener;
 import javafx.collections.ObservableList;
 import javafx.concurrent.Task;
 import javafx.event.ActionEvent;
 import javafx.event.Event;
+import javafx.event.EventHandler;
 import javafx.fxml.FXML;
 import javafx.geometry.Point2D;
 import javafx.geometry.Rectangle2D;
 import javafx.scene.Node;
 import javafx.scene.Scene;
-import javafx.scene.control.*;
+import javafx.scene.control.Alert;
+import javafx.scene.control.Button;
+import javafx.scene.control.ButtonType;
+import javafx.scene.control.CheckBox;
+import javafx.scene.control.ComboBox;
+import javafx.scene.control.Dialog;
+import javafx.scene.control.Label;
+import javafx.scene.control.ListCell;
+import javafx.scene.control.ListView;
+import javafx.scene.control.MenuItem;
+import javafx.scene.control.ProgressBar;
+import javafx.scene.control.SelectionMode;
+import javafx.scene.control.Separator;
+import javafx.scene.control.Slider;
+import javafx.scene.control.TableCell;
+import javafx.scene.control.TableColumn;
+import javafx.scene.control.TableRow;
+import javafx.scene.control.TableView;
+import javafx.scene.control.TextArea;
+import javafx.scene.control.TextField;
+import javafx.scene.control.Tooltip;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.input.KeyCode;
@@ -43,6 +65,7 @@ import javafx.scene.layout.VBox;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
+import javafx.util.Callback;
 import org.controlsfx.control.RangeSlider;
 import uk.co.caprica.vlcj.factory.MediaPlayerFactory;
 import uk.co.caprica.vlcj.player.base.LibVlcConst;
@@ -50,34 +73,27 @@ import uk.co.caprica.vlcj.player.base.MediaPlayer;
 import uk.co.caprica.vlcj.player.base.MediaPlayerEventAdapter;
 import uk.co.caprica.vlcj.player.embedded.EmbeddedMediaPlayer;
 
-import java.io.*;
-import java.util.*;
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.Writer;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 import static uk.co.caprica.vlcj.javafx.videosurface.ImageViewVideoSurfaceFactory.videoSurfaceForImageView;
 
 public class MainController {
-    public static final int SKIP_TIME_MILLIS = 10000;
-    private double videoWidth = 1920.0;
-    private double videoHeight = 1080.0;
-
-    public final ImageView PLAY_ICON = new ImageView("play.png");
-    public final ImageView CLIP_PLAY_ICON = new ImageView("play.png");
-    public final ImageView PAUSE_ICON = new ImageView("pause.png");
-    public final ImageView STOP_ICON = new ImageView("stop.png");
-
-    private final MediaPlayerFactory mediaPlayerFactory;
-    private final EmbeddedMediaPlayer embeddedMediaPlayer;
-
-    private final Lazy<FileChooser> lazyFileChooser = Lazy.of(() -> {
-        var chooser = new FileChooser();
-        chooser.getExtensionFilters().add(
-                new FileChooser.ExtensionFilter("Video Files",
-                        "*.mp4", "*.mts", "*.MTS", "*.m4v", "*.m2ts", "*.avi"));
-
-        return chooser;
-    });
-
     @FXML private MenuItem addVideo;
     @FXML private MenuItem loadProject;
     @FXML private MenuItem closeProject;
@@ -99,24 +115,47 @@ public class MainController {
     @FXML private RangeSlider rangeSlider;
 
     private static final int MIN_PIXELS = 200;
+    private static final int SKIP_TIME_MILLIS = 10000;
+
+    public final ImageView PLAY_ICON = new ImageView("play.png");
+    public final ImageView CLIP_PLAY_ICON = new ImageView("play.png");
+    public final ImageView PAUSE_ICON = new ImageView("pause.png");
+    public final ImageView STOP_ICON = new ImageView("stop.png");
+
+    private final MediaPlayerFactory mediaPlayerFactory;
+    private final EmbeddedMediaPlayer embeddedMediaPlayer;
+
+    private final Lazy<FileChooser> lazyFileChooser = Lazy.of(() -> {
+        var chooser = new FileChooser();
+        chooser.getExtensionFilters().add(
+                new FileChooser.ExtensionFilter("Video Files",
+                        "*.mp4", "*.mts", "*.MTS", "*.m4v", "*.m2ts", "*.avi"));
+
+        return chooser;
+    });
 
     private final SimpleBooleanProperty projectDirty = new SimpleBooleanProperty(false);
     private final SimpleBooleanProperty clipDirty = new SimpleBooleanProperty(false);
     private final SimpleObjectProperty<File> projectFile = new SimpleObjectProperty<>(null);
 
+    private double videoWidth = 1920.0;
+    private double videoHeight = 1080.0;
+
     private Optional<File> loadedMedia = Optional.empty();
     private Optional<Clip> editingClip = Optional.empty();
     private Optional<ClipDescriptionData> clipDescription = Optional.empty();
+    private Map<File, List<Clip>> fileToClips = new HashMap<>();
 
     public MainController() {
         this.mediaPlayerFactory = new MediaPlayerFactory();
         this.embeddedMediaPlayer = mediaPlayerFactory.mediaPlayers().newEmbeddedMediaPlayer();
     }
 
-    public boolean load(File file) {
+    public boolean playFile(File file) {
         bottomBarPlay.setVisible(true);
         bottomBarClip.setVisible(false);
         embeddedMediaPlayer.controls().stop();
+        videoImageView.setVisible(true);
         embeddedMediaPlayer.media().play(file.getAbsolutePath());
         loadedMedia = Optional.of(file);
         // TODO figure out bad file, gripe and return false;
@@ -318,7 +357,7 @@ public class MainController {
     @FXML
     public void sortClips(ActionEvent event) {
         projectDirty.setValue(true);
-        clips.getItems().sort(Comparator.comparing(Clip::itemRepresentation));
+        clips.getItems().sort(Comparator.comparing(Clip::label));
     }
 
     private ButtonType saveOrDiscardClip(Event event, String contentText) {
@@ -335,71 +374,7 @@ public class MainController {
         return choice;
     }
 
-    public void start(Stage stage) {
-        stage.getIcons()
-            .add(new Image(this.getClass().getResourceAsStream( "/icon48.png" )));
-
-        files.getSelectionModel().setSelectionMode(SelectionMode.SINGLE);
-        files.setCellFactory(listView -> {
-            var listCell = new ListCell<File>() {
-                private final Tooltip tooltip = new Tooltip();
-
-                @Override
-                public void updateItem(File item, boolean empty) {
-                    super.updateItem(item, empty);
-                    setTooltip(tooltip);
-                    if (empty) {
-                        setText(null);
-                        tooltip.setText(null);
-                    } else if (item != null) {
-                        setText(item.getName());
-                        tooltip.setText(item.getName());
-                    }
-                }
-            };
-
-            listCell.setOnMouseClicked(event -> {
-                if (event.getClickCount() > 1) {
-                    if (!load(listCell.getItem())) {
-                        files.getItems().remove(listCell.getItem());
-                    }
-                }
-            });
-            return listCell;
-        });
-
-        clips.getSelectionModel().setSelectionMode(SelectionMode.SINGLE);
-
-        clips.getColumns().addAll(createClipsColumns());
-        clips.setRowFactory(listView -> {
-            var tableRow = new TableRow<Clip>() {
-                private final Tooltip tooltip = new Tooltip();
-
-                @Override
-                protected void updateItem(Clip clip, boolean b) {
-                    super.updateItem(clip, b);
-                    setTooltip(tooltip);
-                    tooltip.setText(clip != null ? clip.itemRepresentation() : null);
-                }
-            };
-
-            tableRow.setOnMouseClicked(event -> {
-                if (event.getClickCount() > 1) {
-                    Clip clickedItem = tableRow.getItem();
-                    if (!isPlayerMode() && clipDirty.get() && editingClip
-                            .map(item -> clickedItem != null && clickedItem != item).orElse(false)) {
-                        if (saveOrDiscardClip(event,"Do wish save the clip before switching to another?" ) != ButtonType.CANCEL) {
-                            loadClip(clickedItem);
-                        }
-                    } else {
-                        loadClip(clickedItem);
-                    }
-                }
-            });
-            return tableRow;
-        });
-        clips.getColumns().get(0).prefWidthProperty().bind(clips.widthProperty().subtract(50));
-
+    private void initializeMediaPlayer() {
         embeddedMediaPlayer.videoSurface().set(videoSurfaceForImageView(this.videoImageView));
         embeddedMediaPlayer.events().addMediaPlayerEventListener(new MediaPlayerEventAdapter() {
             @Override
@@ -416,7 +391,6 @@ public class MainController {
             }
 
             @Override
-
             public void playing(MediaPlayer mediaPlayer) {
                 Platform.runLater(() -> {
                     playPause.setGraphic(PAUSE_ICON);
@@ -453,6 +427,78 @@ public class MainController {
                 });
             }
         });
+    }
+
+    public void start(Stage stage) {
+        initializeMediaPlayer();
+
+        stage.getIcons()
+            .add(new Image(this.getClass().getResourceAsStream( "/icon48.png" )));
+
+        files.getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
+        files.setCellFactory(listView -> {
+            var listCell = new ListCell<File>() {
+                private final Tooltip tooltip = new Tooltip();
+
+                @Override
+                public void updateItem(File item, boolean empty) {
+                    super.updateItem(item, empty);
+                    setTooltip(tooltip);
+                    if (empty) {
+                        setText(null);
+                        tooltip.setText(null);
+                    } else if (item != null) {
+                        setText(item.getName());
+                        tooltip.setText(item.getName());
+                    }
+                }
+            };
+
+            listCell.setOnMouseClicked(event -> {
+                clips.getItems().clear();
+                clips.getItems().addAll(fileToClips.getOrDefault(listCell.getItem(), Collections.emptyList()));
+                if (event.getClickCount() > 1) {
+                    if (!playFile(listCell.getItem())) {
+                        files.getItems().remove(listCell.getItem());
+                    }
+                }
+            });
+            return listCell;
+        });
+
+        clips.getSelectionModel().setSelectionMode(SelectionMode.SINGLE);
+
+        clips.getColumns().addAll(
+                createClipNameColumn(row -> new SimpleStringProperty(row.getValue().label())),
+                createClipRatingColumn(row -> new SimpleObjectProperty<>(row.getValue().rating)));
+        clips.setRowFactory(listView -> {
+            var tableRow = new TableRow<Clip>() {
+                private final Tooltip tooltip = new Tooltip();
+
+                @Override
+                protected void updateItem(Clip clip, boolean empty) {
+                    super.updateItem(clip, empty);
+                    setTooltip(tooltip);
+                    tooltip.setText(clip != null ? clip.label() : null);
+                }
+            };
+
+            tableRow.setOnMouseClicked(event -> {
+                if (event.getClickCount() > 1) {
+                    Clip clickedItem = tableRow.getItem();
+                    if (!isPlayerMode() && clipDirty.get() && editingClip
+                            .map(item -> clickedItem != null && clickedItem != item).orElse(false)) {
+                        if (saveOrDiscardClip(event,"Do wish save the clip before switching to another?" ) != ButtonType.CANCEL) {
+                            loadClip(clickedItem);
+                        }
+                    } else {
+                        loadClip(clickedItem);
+                    }
+                }
+            });
+            return tableRow;
+        });
+        clips.getColumns().get(0).prefWidthProperty().bind(clips.widthProperty().subtract(50));
 
         playSlider.valueProperty().addListener((observableValue, number, newValue) -> {
             if (playSlider.isValueChanging()) {
@@ -518,7 +564,7 @@ public class MainController {
         });
 
         loadProject.setOnAction(event -> {
-            if (maybeSaveDirtyProject(stage,
+             if (maybeSaveDirtyProject(stage,
                     "Save Changes",
                     "Save existing changes before loading new project?")) {
                 FileChooser fileChooser = new FileChooser();
@@ -527,6 +573,7 @@ public class MainController {
                                 "*.json"));
                 File file = fileChooser.showOpenDialog(stage);
                 if (file != null) {
+                    embeddedMediaPlayer.controls().stop();
                     ObjectMapper mapper = new ObjectMapper();
                     SimpleModule module = new SimpleModule();
                     module.addDeserializer(Rectangle2D.class, new RectangleDeserializer(Rectangle2D.class));
@@ -538,20 +585,28 @@ public class MainController {
                         files.getItems().addAll(mapper.readValue(reader.readLine(), new TypeReference<List<File>>() {
                         }));
                         String content = reader.readLine();
-                        clips.getItems().addAll(mapper.readValue(content, new TypeReference<List<Clip>>() {
-                        }));
+                        List<Clip> loadedClips = mapper.readValue(content, new TypeReference<>() { });
+                        for (Clip clip : loadedClips) {
+                            fileToClips.computeIfAbsent(clip.file, x -> new ArrayList<>()).add(clip);
+                        }
                     } catch (Exception ex) {
                         ex.printStackTrace(System.err);
                         showAlert("Unexpected Error", "Error loading project: " + ex.getMessage());
                     }
                     projectFile.setValue(file);
                     projectDirty.setValue(false);
+                    closeProject.setDisable(false);
                 }
             }
         });
 
         closeProject.setOnAction(event -> {
+            if (!maybeSaveDirtyProject(stage, "Confirm Project Close", "Save project changes before closing?")) {
+                event.consume();
+            }
+
             embeddedMediaPlayer.controls().stop();
+            videoImageView.setVisible(false);
 
             files.getItems().clear();
             clips.getItems().clear();
@@ -582,15 +637,12 @@ public class MainController {
         saveProjectAs.setDisable(true);
 
         generateVideo.setOnAction(event -> selectClipsDialog(stage).ifPresent(clips -> generateVideo(stage, clips)));
-        //renderScript.setOnAction(event -> renderScript(stage));
 
         generateVideo.setDisable(true);
-        //renderScript.setDisable(true);
 
-        clips.getItems().addListener((ListChangeListener<Clip>) change -> {
-            boolean clipCountIsZero = clips.getItems().size() == 0;
+        files.getSelectionModel().getSelectedItems().addListener((ListChangeListener<File>) change -> {
+            boolean clipCountIsZero = change.getList().size() == 0;
             generateVideo.setDisable(clipCountIsZero);
-            //renderScript.setDisable(clipCountIsZero);
         });
 
         saveClip.disableProperty().bind(clipDirty.not());
@@ -607,19 +659,27 @@ public class MainController {
         rangeSlider.highValueChangingProperty().addListener(dirtyClip);
     }
 
-    private List<TableColumn<Clip, ?>> createClipsColumns() {
-        TableColumn<Clip,String> nameCol = new TableColumn<>("Name");
-        nameCol.setCellValueFactory(row -> new SimpleStringProperty(row.getValue().itemRepresentation()));
+    private <T> TableColumn<T, String> createClipNameColumn(
+        Callback<TableColumn.CellDataFeatures<T, String>, ObservableValue<String>> nameCellFactory
+    ) {
+        TableColumn<T, String> nameCol = new TableColumn<>("Name");
+        nameCol.setCellValueFactory(nameCellFactory);
         nameCol.setResizable(false);
         nameCol.setSortable(false);
-        TableColumn<Clip,Integer> ratingCol = new TableColumn<>("\u2605");
-        ratingCol.setCellValueFactory(row -> new SimpleObjectProperty<>(row.getValue().rating));
+        return nameCol;
+    }
+
+    private <T> TableColumn<T, Integer> createClipRatingColumn(
+        Callback<TableColumn.CellDataFeatures<T, Integer>, ObservableValue<Integer>> ratingCellFactory
+    ) {
+        TableColumn<T, Integer> ratingCol = new TableColumn<>("\u2605");
+        ratingCol.setCellValueFactory(ratingCellFactory);
         ratingCol.setMaxWidth(30);
         ratingCol.setMinWidth(30);
         ratingCol.setSortable(false);
         ratingCol.setStyle( "-fx-alignment: center;");
         ratingCol.setResizable(false);
-        return Arrays.asList(nameCol, ratingCol);
+        return ratingCol;
     }
 
     private boolean isPlayerMode() {
@@ -707,57 +767,96 @@ public class MainController {
         return dialog;
     }
 
+    private class SelectableData<T> {
+        public boolean selected;
+        public final T data;
+
+        public SelectableData(boolean selected, T data) {
+            this.selected = selected;
+            this.data = data;
+        }
+    }
+
     private Optional<ClipGenerationData> selectClipsDialog(Stage stage) {
         Dialog<ClipGenerationData> dialog = createStyledDialog(stage.getScene());
 
+        TableView<SelectableData<Clip>> clipsTable = new TableView<>();
 
-        TableView<Clip> clipsTable = new TableView<>();
-        clipsTable.getColumns().addAll(createClipsColumns());
-        clipsTable.getItems().addAll(clips.getItems());
+        TableColumn<SelectableData<Clip>, Boolean> selectedCol = new TableColumn<>("");
+        selectedCol.setCellFactory(column -> {
+            TableCell<SelectableData<Clip>, Boolean> cell = new TableCell<>() {
+                CheckBox check = new CheckBox();
+
+                @Override
+                protected void updateItem(Boolean item, boolean empty) {
+                    super.updateItem(item, empty);
+                    if (empty || item == null) {
+                        setText(null);
+                        setGraphic(null);
+                    } else {
+                        check.setSelected(item);
+                        setGraphic(check);
+                    }
+                }
+            };
+            return cell;
+        });
+        selectedCol.setCellValueFactory(row -> new SimpleBooleanProperty(row.getValue().selected));
+        selectedCol.setResizable(false);
+        selectedCol.setSortable(false);
+        selectedCol.setEditable(false);
+        selectedCol.setPrefWidth(30);
+
+        TableColumn<SelectableData<Clip>, String> fileCol =  new TableColumn<>("File");
+        fileCol.setCellValueFactory(row -> new SimpleStringProperty(row.getValue().data.file.getName()));
+
+        TableColumn<SelectableData<Clip>, String> nameCol = createClipNameColumn(
+                row -> new SimpleStringProperty(row.getValue().data.label()));
+        TableColumn<SelectableData<Clip>, Integer> ratingCol = createClipRatingColumn(
+                row -> new SimpleObjectProperty<>(row.getValue().data.rating));
+
+        clipsTable.getColumns().addAll(selectedCol, fileCol, nameCol, ratingCol);
+
+        clipsTable.getItems().addAll(files.getSelectionModel().getSelectedItems().stream()
+            .flatMap(file -> fileToClips.getOrDefault(file, Collections.emptyList()).stream())
+            .map(clip -> new SelectableData<>(true, clip))
+            .collect(Collectors.toList())
+        );
         clipsTable.setMinWidth(650);
-        clipsTable.getColumns().get(0).prefWidthProperty().bind(clipsTable.widthProperty().subtract(70));
-        clipsTable.getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
-
-        HBox selectCountRow = new HBox();
-        Label selectedCount = new Label("0");
-        clipsTable.getSelectionModel().getSelectedItems().addListener(
-                (ListChangeListener<Clip>) change -> selectedCount.setText(String.valueOf(change.getList().size())));
-        selectCountRow.getChildren().addAll(new Label("Number selected: "), selectedCount);
+        nameCol.prefWidthProperty().bind(clipsTable.widthProperty().subtract(fileCol.widthProperty()).subtract(80));
+        clipsTable.getSelectionModel().setSelectionMode(SelectionMode.SINGLE);
 
         HBox selectOperationRow = new HBox(10);
 
-        ComboBox<String> operation = new ComboBox<>();
-        operation.getItems().addAll("Select", "Unselect");
-        operation.getSelectionModel().select(0);
+        Button select = new Button("Select");
+        Button deSelect = new Button("De-select");
 
         ComboBox<String> rating = new ComboBox<>();
         rating.getItems().addAll("all", "not rated", "1", "2", "3", "4", "5");
         rating.getSelectionModel().select(0);
 
-        Button execute = new Button("Apply");
-        execute.setOnAction(event -> {
-            boolean selected = "Select".equals(operation.getSelectionModel().getSelectedItem());
+        selectOperationRow.getChildren().addAll(select, deSelect, rating);
+
+        EventHandler<ActionEvent> eventHandler = event -> {
+            boolean selected = event.getSource() == select;
             boolean targeted = false;
             String ratingValue = rating.getValue();
             for (int i = 0, max = clipsTable.getItems().size(); i < max; i++) {
-                Clip clip = clipsTable.getItems().get(i);
+                SelectableData<Clip> row = clipsTable.getItems().get(i);
                 switch (ratingValue) {
                     case "all": targeted = true; break;
-                    case "not rated": targeted = clip.rating == null; break;
-                    default: targeted = clip.rating != null && Integer.parseInt(ratingValue) == clip.rating; break;
+                    case "not rated": targeted = row.data.rating == null; break;
+                    default: targeted = row.data.rating != null && Integer.parseInt(ratingValue) == row.data.rating; break;
                 }
                 if (targeted) {
-                    TableSelectionModel<Clip> selectionModel = clipsTable.getSelectionModel();
-                    if (selected) {
-                        selectionModel.select(i);
-                    } else {
-                        selectionModel.clearSelection(i);
-                    }
+                    row.selected = selected;
                 }
             }
-        });
+            clipsTable.refresh();
+        };
 
-        selectOperationRow.getChildren().addAll(operation, rating, execute);
+        select.setOnAction(eventHandler);
+        deSelect.setOnAction(eventHandler);
 
         HBox outputFileRow = new HBox();
 
@@ -780,7 +879,6 @@ public class MainController {
 
         vbox.getChildren().addAll(
                 clipsTable,
-                selectCountRow,
                 selectOperationRow,
                 new Separator(),
                 outputFileRow
@@ -793,7 +891,10 @@ public class MainController {
         dialog.setResultConverter(buttonType -> {
             if (buttonType == ButtonType.OK) {
                 return new ClipGenerationData(
-                    clipsTable.getSelectionModel().getSelectedItems(),
+                    clipsTable.getItems().stream()
+                            .filter(it -> it.selected)
+                            .map(it -> it.data)
+                            .collect(Collectors.toList()),
                     fileNameText.getText(),
                     preset.getValue()
                 );
@@ -802,6 +903,7 @@ public class MainController {
             }
         });
         clipsTable.requestFocus();
+
         return dialog.showAndWait();
     }
 
@@ -929,38 +1031,6 @@ public class MainController {
         new Thread(task).start();
     }
 
-//    private void renderScript(Stage stage) {
-//        File dir = new DirectoryChooser().showDialog(stage);
-//        try (Writer runWriter = new BufferedWriter(new FileWriter(new File(dir, "run.sh")));
-//             Writer concatWriter = new BufferedWriter(new FileWriter(new File(dir, "concat_files.txt")))
-//        ) {
-//            Map<File, Optional<FileFFProbeData>> fileFFProbeDataMap = new HashMap<>();
-//            for (Clip clip : clips.getSelectionModel().getSelectedItems()) {
-//                Optional<FileFFProbeData> fileMeta = fileFFProbeDataMap.computeIfAbsent(clip.file, MainController.this::startClipFFProbeMetaFile);
-//                float startTime = fileMeta.map(FileFFProbeData::getStartTime).orElse(0.0f);
-//                Rectangle2D viewPort = clip.viewportRect;
-//                runWriter.append(String.format("ffmpeg -n -ss %.2f -i \"%s\" -vf \"crop=%d:%d:%d:%d, scale=%d:%d\" -t %.2f %s.mp4\n",
-//                        Math.max(0.0f, (clip.lowValue / 1000) - startTime),
-//                        clip.file,
-//                        (int) viewPort.getWidth(),
-//                        (int) viewPort.getHeight(),
-//                        (int) viewPort.getMinX(),
-//                        (int) viewPort.getMinY(),
-//                        (int) videoWidth,
-//                        (int) videoHeight,
-//                        (clip.highValue - clip.lowValue) / 1000,
-//                        clip.itemRepresentation()
-//                ));
-//
-//                concatWriter.append(String.format("file %s.mp4\n", clip.itemRepresentation()));
-//            }
-//
-//            runWriter.append("ffmpeg -f concat -i concat_files.txt -c copy concatenated.mp4\n");
-//        } catch (IOException ex) {
-//            ex.printStackTrace(System.err);
-//        }
-//    }
-
     private void saveProjectFile(File file) {
         ObjectMapper mapper = new ObjectMapper();
 
@@ -1002,7 +1072,7 @@ public class MainController {
 
     private void loadClip(Clip clip) {
         embeddedMediaPlayer.controls().stop();
-        load(clip.file);
+        playFile(clip.file);
         activateClipMode(clip.minValue, clip.lowValue, clip.highValue, clip.maxValue, Optional.of(clip));
         clipDirty.setValue(false);
         videoImageView.setViewport(clip.viewportRect);
@@ -1121,10 +1191,18 @@ public class MainController {
             this.viewportRect = viewportRect;
         }
 
-        public String itemRepresentation() {
+        public String label() {
             String unpadded = String.valueOf((long) (lowValue * 1000));
+            return ("000000000000".substring(unpadded.length()) + unpadded).substring(0, 12);
+        }
+
+        public Integer getRating() {
+            return rating;
+        }
+
+        public String itemRepresentation() {
             return file.getName().replaceFirst("[.][^.]+$", "") +
-                    "_" + ("000000000000".substring(unpadded.length()) + unpadded).substring(0, 12);
+                    "_" + label();
         }
     }
 
