@@ -8,14 +8,14 @@
 <VBox xmlns:fx="http://javafx.com/fxml" fx:controller="org.daltontf1212.MainController">
     <MenuBar>
         <Menu text="File">
-            <MenuItem text="Add Video(s)" fx:id="addVideo"/>
-            <MenuItem text="Load Project" fx:id="loadProject"/>
-            <MenuItem text="Close Project" fx:id="closeProject"/>
-            <MenuItem text="Save Project" fx:id="saveProject"/>
-            <MenuItem text="Save Project As" fx:id="saveProjectAs"/>
+            <MenuItem text="Add Video(s)" fx:id="addVideoFile" onAction="#doAddVideoFile"/>
+            <MenuItem text="Load Project" fx:id="loadProject" onAction="#doLoadProject"/>
+            <MenuItem text="Close Project" fx:id="closeProject" onAction="#doCloseProject"/>
+            <MenuItem text="Save Project" fx:id="saveProject" onAction="#doSaveProject"/>
+            <MenuItem text="Save Project As" fx:id="saveProjectAs" onAction="#doSaveProjectAs"/>
         </Menu>
         <Menu text="Run">
-            <MenuItem text="Generate Video" fx:id="generateVideo"/>
+            <MenuItem text="Generate Video" fx:id="generateVideo" onAction="#doGenerateVideo"/>
         </Menu>
     </MenuBar>
     <SplitPane VBox.vgrow="ALWAYS" dividerPositions="0.15">
@@ -24,38 +24,38 @@
                 <VBox>
                     <BorderPane>
                         <left><Label text="Files"/></left>
-                        <right><Button id="sortFiles" onAction="#sortFiles"/></right>
+                        <right><Button id="sortFiles" onAction="#doSortFiles"/></right>
                     </BorderPane>
-                    <ListView VBox.vgrow="ALWAYS" fx:id="files" onKeyPressed="#keyPressedFiles"/>
+                    <ListView VBox.vgrow="ALWAYS" fx:id="files" onKeyPressed="#doKeyPressedFiles"/>
                 </VBox>
                 <VBox>
                     <BorderPane>
                         <left><Label text="Clips"/></left>
-                        <right><Button id="sortClips" onAction="#sortClips"/></right>
+                        <right><Button id="sortClips" onAction="#doSortClips"/></right>
                     </BorderPane>
-                    <TableView VBox.vgrow="ALWAYS" fx:id="clips" onKeyPressed="#keyPressedClips"/>
+                    <TableView VBox.vgrow="ALWAYS" fx:id="clips" onKeyPressed="#doKeyPressedClips"/>
                 </VBox>
             </SplitPane>
             <VBox fx:id="videoPane">
                 <ImageView VBox.vgrow="ALWAYS" fx:id="videoImageView" preserveRatio="true"/>
                 <StackPane fx:id="bottomPane">
                 <HBox fx:id="bottomBarPlay">
-                    <Button id="skipBackward" onAction="#skipBackward"/>
-                    <Button fx:id="playPause" onAction="#playPause"/>
-                    <Button id="skipForward" onAction="#skipForward"/>
+                    <Button id="skipBackward" onAction="#doSkipBackward"/>
+                    <Button fx:id="playPause" onAction="#doPlayPause"/>
+                    <Button id="skipForward" onAction="#doSkipForward"/>
                     <Slider fx:id="playSlider" HBox.hgrow="ALWAYS" showTickLabels="true" showTickMarks="true" majorTickUnit="60"/>
-                    <Button id="addClip" onAction="#addClip"/>
+                    <Button id="addClip" onAction="#doAddClip"/>
                 </HBox>
                 <HBox visible="false" fx:id="bottomBarClip">
-                    <Button fx:id="clipPlayStop" onAction="#clipPlayStop"/>
+                    <Button fx:id="clipPlayStop" onAction="#doClipPlayStop"/>
                     <RangeSlider fx:id="rangeSlider" HBox.hgrow="ALWAYS" showTickLabels="true" showTickMarks="true" majorTickUnit="5"/>
-                    <Button id="clipSetStart" onAction="#clipSetStart"/>
-                    <Button id="clipSetStop" onAction="#clipSetStop"/>
-                    <Button id="clipZoomIn" onAction="#clipZoomIn"/>
-                    <Button id="clipZoomOut" onAction="#clipZoomOut"/>
-                    <Button id="describeClip" onAction="#describeClip"/>
-                    <Button fx:id="saveClip" onAction="#saveClip"/>
-                    <Button id="cancelClip" onAction="#cancelClip"/>
+                    <Button id="clipSetStart" onAction="#doClipSetStart"/>
+                    <Button id="clipSetStop" onAction="#doClipSetStop"/>
+                    <Button id="clipZoomIn" onAction="#doClipZoomIn"/>
+                    <Button id="clipZoomOut" onAction="#doClipZoomOut"/>
+                    <Button id="describeClip" onAction="#doDescribeClip"/>
+                    <Button fx:id="saveClip" onAction="#doSaveClip"/>
+                    <Button id="cancelClip" onAction="#doCancelClip"/>
                 </HBox>
                 </StackPane>
             </VBox>
