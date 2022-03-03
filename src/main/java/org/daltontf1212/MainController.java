@@ -17,6 +17,7 @@ import com.github.kokorin.jaffree.ffprobe.FFprobe;
 import com.github.kokorin.jaffree.ffprobe.Stream;
 import io.vavr.Lazy;
 import javafx.application.Platform;
+import javafx.beans.property.BooleanProperty;
 import javafx.beans.property.SimpleBooleanProperty;
 import javafx.beans.property.SimpleObjectProperty;
 import javafx.beans.property.SimpleStringProperty;
@@ -35,7 +36,6 @@ import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonType;
-import javafx.scene.control.CheckBox;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
@@ -46,13 +46,13 @@ import javafx.scene.control.ProgressBar;
 import javafx.scene.control.SelectionMode;
 import javafx.scene.control.Separator;
 import javafx.scene.control.Slider;
-import javafx.scene.control.TableCell;
 import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableRow;
 import javafx.scene.control.TableView;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.control.Tooltip;
+import javafx.scene.control.cell.CheckBoxTableCell;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.input.KeyCode;
@@ -111,7 +111,7 @@ public class MainController {
     @FXML private RangeSlider rangeSlider;
 
     private static final int MIN_PIXELS = 200;
-    private static final int SKIP_TIME_MILLIS = 10000;
+    private static final int SKIP_TIME_MILLIS = 5000;
 
     public final ImageView PLAY_ICON = new ImageView("play.png");
     public final ImageView CLIP_PLAY_ICON = new ImageView("play.png");
@@ -205,6 +205,7 @@ public class MainController {
                 projectFile.setValue(file);
                 projectDirty.setValue(false);
                 closeProject.setDisable(false);
+                saveProjectAs.setDisable(false);
             }
         }
     }
@@ -222,8 +223,10 @@ public class MainController {
         files.getItems().clear();
         clips.getItems().clear();
 
-        projectDirty.setValue(false);
         projectFile.setValue(null);
+        projectDirty.setValue(false);
+
+        fileToClips.clear();
     }
 
     @FXML
@@ -315,6 +318,8 @@ public class MainController {
         dialog.setHeaderText("Enter description for this clip:");
 
         VBox dialogRoot = new VBox();
+        TextField labelText = new TextField(clipDescription.map(ClipDescriptionData::getLabel).orElse(""));
+        dialogRoot.getChildren().add(labelText);
         TextArea descriptionText = new TextArea(clipDescription.map(ClipDescriptionData::getDescription).orElse(""));
         dialogRoot.getChildren().add(descriptionText);
         ComboBox<Integer> ratingCombo = new ComboBox<>();
@@ -327,7 +332,10 @@ public class MainController {
 
         dialog.setResultConverter(dialogButton -> {
             if (dialogButton == ButtonType.OK) {
+                String label = labelText.getText().trim();
+
                 return new ClipDescriptionData(
+                        label.length() > 0 ? label : null,
                         descriptionText.getText(),
                         ratingCombo.getValue()
                 );
@@ -354,6 +362,7 @@ public class MainController {
         }
         bottomBarPlay.setVisible(true);
         bottomBarClip.setVisible(false);
+        editingClip = Optional.empty();
 
         playSlider.setValue(embeddedMediaPlayer.status().time() / 1000.0);
         resetViewport();
@@ -363,8 +372,10 @@ public class MainController {
     public void doSaveClip(Event event) {
         clipDirty.setValue(false);
         projectDirty.setValue(true);
+
         var newClip = new Clip(
                 loadedMedia.get(),
+                clipDescription.map(ClipDescriptionData::getLabel).orElse(null),
                 clipDescription.map(ClipDescriptionData::getDescription).orElse(null),
                 clipDescription.map(ClipDescriptionData::getRating).orElse(null),
                 rangeSlider.getMin() * 1000.0,
@@ -373,13 +384,16 @@ public class MainController {
                 rangeSlider.getMax() * 1000.0,
                 videoImageView.getViewport()
         );
-        List<Clip> items = fileToClips.get(newClip.file);
+        List<Clip> items = fileToClips.computeIfAbsent(newClip.file, file -> new ArrayList<>());
         editingClip.ifPresentOrElse(clip -> {
             int idx = items.indexOf(clip);
-            items.remove(idx);
-            items.add(idx, newClip);
-
-        },() -> clips.getItems().add(newClip));
+            if (idx >= 0) {
+                items.remove(idx);
+                items.add(idx, newClip);
+            } else {
+                items.add(newClip);
+            }
+        }, () -> items.add(newClip));
 
         clips.getItems().clear();
         clips.getItems().addAll(items);
@@ -634,6 +648,7 @@ public class MainController {
         clips.getColumns().addAll(
                 createClipNameColumn(row -> new SimpleStringProperty(row.getValue().label())),
                 createClipRatingColumn(row -> new SimpleObjectProperty<>(row.getValue().rating)));
+
         clips.setRowFactory(listView -> {
             var tableRow = new TableRow<Clip>() {
                 private final Tooltip tooltip = new Tooltip();
@@ -650,10 +665,11 @@ public class MainController {
                 if (event.getClickCount() > 1) {
                     Clip clickedItem = tableRow.getItem();
                     if (clickedItem != null) {
-                        if (!isPlayerMode() && clipDirty.get() && editingClip
-                                .map(item -> clickedItem != null && clickedItem != item).orElse(false)) {
-                            if (saveOrDiscardClip(event, "Do wish save the clip before switching to another?") != ButtonType.CANCEL) {
-                                loadClip(clickedItem);
+                        if (!isPlayerMode() && clipDirty.get()) {
+                            if (editingClip.map(item -> clickedItem != item).orElse(false)) {
+                                if (saveOrDiscardClip(event, "Do wish save the clip before switching to another?") != ButtonType.CANCEL) {
+                                    loadClip(clickedItem);
+                                }
                             }
                         } else {
                             loadClip(clickedItem);
@@ -686,7 +702,7 @@ public class MainController {
         projectDirty.addListener(
             (observableValue, wasDirty, nowDirty) -> {
                 saveProject.setDisable(!nowDirty);
-                saveProjectAs.setDisable(!nowDirty);
+                saveProjectAs.setDisable(projectFile.get() == null);
                 closeProject.setDisable(projectFile.get() == null && !nowDirty);
             });
 
@@ -821,11 +837,11 @@ public class MainController {
     }
 
     private class SelectableData<T> {
-        public boolean selected;
+        public BooleanProperty selected;
         public final T data;
 
         public SelectableData(boolean selected, T data) {
-            this.selected = selected;
+            this.selected = new SimpleBooleanProperty(selected);
             this.data = data;
         }
     }
@@ -836,28 +852,15 @@ public class MainController {
         TableView<SelectableData<Clip>> clipsTable = new TableView<>();
 
         TableColumn<SelectableData<Clip>, Boolean> selectedCol = new TableColumn<>("");
-        selectedCol.setCellFactory(column ->
-             new TableCell<>() {
-                final CheckBox check = new CheckBox();
 
-                @Override
-                protected void updateItem(Boolean item, boolean empty) {
-                    super.updateItem(item, empty);
-                    if (empty || item == null) {
-                        setText(null);
-                        setGraphic(null);
-                    } else {
-                        check.setSelected(item);
-                        setGraphic(check);
-                    }
-                }
-            }
-        );
-        selectedCol.setCellValueFactory(row -> new SimpleBooleanProperty(row.getValue().selected));
+        selectedCol.setCellValueFactory(row -> row.getValue().selected);
+        selectedCol.setCellFactory(column -> new CheckBoxTableCell<>());
         selectedCol.setResizable(false);
         selectedCol.setSortable(false);
-        selectedCol.setEditable(false);
+        selectedCol.setEditable(true);
         selectedCol.setPrefWidth(30);
+
+        clipsTable.setEditable(true);
 
         TableColumn<SelectableData<Clip>, String> fileCol =  new TableColumn<>("File");
         fileCol.setCellValueFactory(row -> new SimpleStringProperty(row.getValue().data.file.getName()));
@@ -901,7 +904,7 @@ public class MainController {
                     default: targeted = row.data.rating != null && Integer.parseInt(ratingValue) == row.data.rating; break;
                 }
                 if (targeted) {
-                    row.selected = selected;
+                    row.selected.set(selected);
                 }
             }
             clipsTable.refresh();
@@ -944,7 +947,7 @@ public class MainController {
             if (buttonType == ButtonType.OK) {
                 return new ClipGenerationData(
                     clipsTable.getItems().stream()
-                            .filter(it -> it.selected)
+                            .filter(it -> it.selected.get())
                             .map(it -> it.data)
                             .collect(Collectors.toList()),
                     fileNameText.getText(),
@@ -1112,7 +1115,7 @@ public class MainController {
         rangeSlider.setLowValue(lowValue / 1000.0);
         rangeSlider.setHighValue(highValue / 1000.0);
 
-        this.clipDescription = editingClip.map(clip -> new ClipDescriptionData(clip.description, clip.rating));
+        this.clipDescription = editingClip.map(clip -> new ClipDescriptionData(clip.label(), clip.description, clip.rating));
 
         this.editingClip = editingClip;
     }
@@ -1166,12 +1169,18 @@ public class MainController {
     }
 
     public static class ClipDescriptionData {
+        public final String label;
         public final String description;
         public final Integer rating;
 
-        public ClipDescriptionData(String description, Integer rating) {
+        public ClipDescriptionData(String label, String description, Integer rating) {
+            this.label = label;
             this.description = description;
             this.rating = rating;
+        }
+
+        public String getLabel() {
+            return label;
         }
 
         public String getDescription() {
@@ -1185,6 +1194,7 @@ public class MainController {
 
     public static class Clip {
         public final File file;
+        public final String label;
         public final String description;
         public final Integer rating;
         public final double minValue;
@@ -1196,6 +1206,7 @@ public class MainController {
         @JsonCreator
         public Clip(
             @JsonProperty("file") File file,
+            @JsonProperty("title") String label,
             @JsonProperty("description") String description,
             @JsonProperty("rating") Integer rating,
             @JsonProperty("minValue") double minValue,
@@ -1204,6 +1215,7 @@ public class MainController {
             @JsonProperty("maxValue") double maxValue,
             @JsonProperty("viewportRect") Rectangle2D viewportRect) {
             this.file = file;
+            this.label = label;
             this.description = description;
             this.rating = rating;
             this.minValue = minValue;
@@ -1215,8 +1227,12 @@ public class MainController {
         }
 
         public String label() {
-            String unpadded = String.valueOf((long) (lowValue * 1000));
-            return ("000000000000".substring(unpadded.length()) + unpadded).substring(0, 12);
+            if (label != null) {
+                return label;
+            } else {
+                String unpadded = String.valueOf((long) (lowValue * 1000));
+                return ("000000000000".substring(unpadded.length()) + unpadded).substring(0, 12);
+            }
         }
 
         public String itemRepresentation() {
