@@ -16,7 +16,6 @@
 }
 
 .button {
-    -fx-focus-traversable: false;
     -fx-font-family: Monospace;
     -fx-font-size: 12pt;
     -fx-padding: 2px;
@@ -70,16 +69,32 @@
     -fx-graphic: url("describeClip.png");
 }
 
-.button#saveClip {
-    -fx-graphic: url("saveClip.png");
+.button#addUpdateClip {
+    -fx-graphic: url("addUpdateClip.png");
 }
 
-.button#cancelClip {
-    -fx-graphic: url("cancelClip.png");
+.button#undoClipChanges {
+    -fx-graphic: url("undoClipChanges.png");
 }
 
-.button#sortFiles, .button#sortClips {
+.button#endClipEditing {
+    -fx-graphic: url("endClipEditing.png");
+}
+
+.button#sortClips {
     -fx-graphic: url("sortaz.png");
+}
+
+.menu-button#fileOperations {
+    -fx-graphic: url("hamburger.png");
+}
+
+.menu-button > .arrow-button {
+    -fx-padding: 0;
+}
+
+.menu-button > .arrow-button > .arrow {
+    -fx-padding: 0;
 }
 
 .slider {

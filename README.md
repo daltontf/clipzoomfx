@@ -15,8 +15,9 @@ about the name ;))
 
 ###Near Term Fixes and Enhancements
 
-- Ability re-order clips has associated with the video
-file and during generation of concatenated highlight video
+- Ability to sort video files by parsing dates in file name that are not necessarily in alphabetic order. (I have some files MM-DD-YYYY-xxx.m2ts format)
+- Keyboard support for video / clip editing.
+- Ability re-order clips during generation of concatenated highlight video
 - Ability to rename clips other than the timestamp offset 
 in the video file.
 - Create a back-up of any project file being overwritten.

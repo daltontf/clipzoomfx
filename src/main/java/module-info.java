@@ -13,6 +13,7 @@ module org.daltontf1212 {
     requires com.github.kokorin.jaffree;
     requires org.slf4j;
     requires org.slf4j.simple;
+    requires commons.math3;
 
     opens org.daltontf1212;
 }

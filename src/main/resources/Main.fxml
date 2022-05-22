@@ -22,40 +22,100 @@
         <items>
             <SplitPane orientation="VERTICAL" dividerPositions="0.5">
                 <VBox>
-                    <BorderPane>
-                        <left><Label text="Files"/></left>
-                        <right><Button id="sortFiles" onAction="#doSortFiles"/></right>
-                    </BorderPane>
+                    <HBox>
+                        <Label text="Files"/>
+                        <Region HBox.hgrow="ALWAYS"/>
+                        <MenuButton id="fileOperations">
+                            <items>
+                                <MenuItem text="Sort By File Name" onAction="#doSortFilesAlphabetic"/>
+                                <MenuItem text="Sort Detected Date in Name" onAction="#doSortFilesDetectDate"/>
+                            </items>
+                        </MenuButton>
+                    </HBox>
                     <ListView VBox.vgrow="ALWAYS" fx:id="files" onKeyPressed="#doKeyPressedFiles"/>
                 </VBox>
                 <VBox>
-                    <BorderPane>
-                        <left><Label text="Clips"/></left>
-                        <right><Button id="sortClips" onAction="#doSortClips"/></right>
-                    </BorderPane>
+                    <HBox>
+                        <Label text="Clips"/>
+                        <Region HBox.hgrow="ALWAYS"/>
+                        <Button id="sortClips" onAction="#doSortClips"/>
+                    </HBox>
                     <TableView VBox.vgrow="ALWAYS" fx:id="clips" onKeyPressed="#doKeyPressedClips"/>
                 </VBox>
             </SplitPane>
             <VBox fx:id="videoPane">
                 <ImageView VBox.vgrow="ALWAYS" fx:id="videoImageView" preserveRatio="true"/>
                 <StackPane fx:id="bottomPane">
-                <HBox fx:id="bottomBarPlay">
-                    <Button id="skipBackward" onAction="#doSkipBackward"/>
-                    <Button fx:id="playPause" onAction="#doPlayPause"/>
-                    <Button id="skipForward" onAction="#doSkipForward"/>
+                <HBox fx:id="bottomBarPlay" onKeyPressed="#doKeyPressedPlay">
+                    <Button id="skipBackward" onAction="#doSkipBackward">
+                        <tooltip>
+                            <Tooltip text="Skip backward 5 seconds" />
+                        </tooltip>
+                    </Button>
+                    <Button fx:id="playPause" onAction="#doPlayPause">
+                        <tooltip>
+                            <Tooltip text="Play or stop video" />
+                        </tooltip>
+                    </Button>
+                    <Button id="skipForward" onAction="#doSkipForward">
+                        <tooltip>
+                            <Tooltip text="Skip forward 5 seconds" />
+                        </tooltip>
+                    </Button>
                     <Slider fx:id="playSlider" HBox.hgrow="ALWAYS" showTickLabels="true" showTickMarks="true" majorTickUnit="60"/>
-                    <Button id="addClip" onAction="#doAddClip"/>
+                    <Button id="addClip" onAction="#doAddClip">
+                        <tooltip>
+                            <Tooltip text="Create clip around current video position" />
+                        </tooltip>
+                    </Button>
                 </HBox>
-                <HBox visible="false" fx:id="bottomBarClip">
-                    <Button fx:id="clipPlayStop" onAction="#doClipPlayStop"/>
+                <HBox visible="false" fx:id="bottomBarClip" onKeyPressed="#doKeyPressedClip">
+                    <Button fx:id="clipPlayStop" onAction="#doClipPlayStop">
+                        <tooltip>
+                            <Tooltip text="Play or stop video" />
+                        </tooltip>
+                    </Button>
                     <RangeSlider fx:id="rangeSlider" HBox.hgrow="ALWAYS" showTickLabels="true" showTickMarks="true" majorTickUnit="5"/>
-                    <Button id="clipSetStart" onAction="#doClipSetStart"/>
-                    <Button id="clipSetStop" onAction="#doClipSetStop"/>
-                    <Button id="clipZoomIn" onAction="#doClipZoomIn"/>
-                    <Button id="clipZoomOut" onAction="#doClipZoomOut"/>
-                    <Button id="describeClip" onAction="#doDescribeClip"/>
-                    <Button fx:id="saveClip" onAction="#doSaveClip"/>
-                    <Button id="cancelClip" onAction="#doCancelClip"/>
+                    <Button id="clipSetStart" onAction="#doClipSetStart">
+                        <tooltip>
+                            <Tooltip text="Play or stop video" />
+                        </tooltip>
+                    </Button>
+                    <Button id="clipSetStop" onAction="#doClipSetStop">
+                        <tooltip>
+                            <Tooltip text="Set the end position of clip to current position" />
+                        </tooltip>
+                    </Button>
+                    <Button id="clipZoomIn" onAction="#doClipZoomIn">
+                        <tooltip>
+                            <Tooltip text="Narrow the time range for clip editing" />
+                        </tooltip>
+                    </Button>
+                    <Button id="clipZoomOut" onAction="#doClipZoomOut">
+                        <tooltip>
+                            <Tooltip text="Expand the time range for clip editing" />
+                        </tooltip>
+                    </Button>
+                    <Button id="describeClip" onAction="#doDescribeClip">
+                        <tooltip>
+                            <Tooltip text="Show dialog to edit clip description" />
+                        </tooltip>
+                    </Button>
+                    <Button fx:id="undoClipChanges" onAction="#doUndoClipChanges">
+                        <tooltip>
+                            <Tooltip text="Revert clip to last saved state" />
+                        </tooltip>
+                    </Button>
+                    <Button fx:id="addUpdateClip" onAction="#doAddUpdateClip">
+                        <tooltip>
+                            <Tooltip text="Add/Update clip" />
+                        </tooltip>
+                    </Button>
+                    <Button id="endClipEditing" onAction="#doEndClipEditing">
+                        <tooltip>
+                            <Tooltip text="End/Cancel clip editing"/>
+                        </tooltip>
+                    </Button>
                 </HBox>
                 </StackPane>
             </VBox>
