@@ -24,6 +24,8 @@ import javafx.beans.property.SimpleObjectProperty;
 import javafx.beans.property.SimpleStringProperty;
 import javafx.beans.value.ChangeListener;
 import javafx.beans.value.ObservableValue;
+import javafx.collections.ListChangeListener;
+import javafx.collections.ObservableList;
 import javafx.concurrent.Task;
 import javafx.event.ActionEvent;
 import javafx.event.Event;
@@ -713,9 +715,15 @@ public class MainController {
                 }
             };
 
-            listCell.setOnMouseClicked(event -> {
+            files.getSelectionModel().getSelectedItems().addListener((ListChangeListener<File>) change -> {
                 clips.getItems().clear();
-                clips.getItems().addAll(fileToClips.getOrDefault(listCell.getItem(), Collections.emptyList()));
+                ObservableList<? extends File> selectedFileList = change.getList();
+                if (!selectedFileList.isEmpty()) {
+                    clips.getItems().addAll(fileToClips.getOrDefault(selectedFileList.get(0), Collections.emptyList()));
+                }
+            });
+
+            listCell.setOnMouseClicked(event -> {
                 if (event.getClickCount() > 1) {
                     if (!playFile(listCell.getItem())) {
                         files.getItems().remove(listCell.getItem());
