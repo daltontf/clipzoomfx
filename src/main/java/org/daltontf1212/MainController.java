@@ -71,6 +71,7 @@ import javafx.util.Callback;
 import org.apache.commons.math3.util.Precision;
 import org.controlsfx.control.RangeSlider;
 import uk.co.caprica.vlcj.factory.MediaPlayerFactory;
+import uk.co.caprica.vlcj.javafx.videosurface.ImageViewVideoSurface;
 import uk.co.caprica.vlcj.player.base.LibVlcConst;
 import uk.co.caprica.vlcj.player.base.MediaPlayer;
 import uk.co.caprica.vlcj.player.base.MediaPlayerEventAdapter;
@@ -95,8 +96,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-
-import static uk.co.caprica.vlcj.javafx.videosurface.ImageViewVideoSurfaceFactory.videoSurfaceForImageView;
 
 public class MainController {
     @FXML private MenuItem closeProject;
@@ -270,9 +269,11 @@ public class MainController {
     }
 
     @FXML
-    public void doSkipBackward(ActionEvent event) {
+    public void doSkipBackward(Event event) {
         long time = embeddedMediaPlayer.status().time();
+        embeddedMediaPlayer.controls().pause();
         embeddedMediaPlayer.controls().setTime(Math.max(time - SKIP_TIME_MILLIS, 0));
+        embeddedMediaPlayer.controls().play();
     }
 
     @FXML
@@ -286,9 +287,11 @@ public class MainController {
     }
 
     @FXML
-    public void doSkipForward(ActionEvent event) {
+    public void doSkipForward(Event event) {
         long time = embeddedMediaPlayer.status().time();
+        embeddedMediaPlayer.controls().pause();
         embeddedMediaPlayer.controls().setTime(Math.min(time + SKIP_TIME_MILLIS, embeddedMediaPlayer.status().length()));
+        embeddedMediaPlayer.controls().play();
     }
 
     @FXML
@@ -591,7 +594,7 @@ public class MainController {
     }
 
     private void initializeMediaPlayer() {
-        embeddedMediaPlayer.videoSurface().set(videoSurfaceForImageView(this.videoImageView));
+        embeddedMediaPlayer.videoSurface().set(new ImageViewVideoSurface(this.videoImageView));
         embeddedMediaPlayer.events().addMediaPlayerEventListener(new MediaPlayerEventAdapter() {
             @Override
             public void mediaPlayerReady(MediaPlayer mediaPlayer) {
@@ -786,15 +789,28 @@ public class MainController {
         initializeMediaPlayer();
         initializeVideoImageView();
 
-//        playSlider.valueChangingProperty().addListener((obs, wasChanging, isChanging) -> {
+        playSlider.valueChangingProperty().addListener((obs, wasChanging, isChanging) -> {
 //            if (!isChanging) {
 //                embeddedMediaPlayer.controls().setTime((long) (playSlider.getValue() * 1000));
 //            }
-//        });
+        });
+
+        playSlider.setOnKeyPressed(event -> {
+            switch (event.getCode()) {
+                case RIGHT -> {
+                    doSkipForward(event);
+                }
+                case LEFT -> {
+                    doSkipBackward(event);
+                }
+            }
+        });
 
         playSlider.valueProperty().addListener((observableValue, number, newValue) -> {
             if (playSlider.isValueChanging()) {
+                embeddedMediaPlayer.controls().pause();
                 embeddedMediaPlayer.controls().setTime(newValue.longValue() * 1000);
+                embeddedMediaPlayer.controls().play();
             }
         });
 

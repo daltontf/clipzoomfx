@@ -4,7 +4,7 @@ module org.daltontf1212 {
     requires javafx.graphics;
     requires javafx.controls;
     requires javafx.fxml;
-    requires controlsfx;
+    requires org.controlsfx.controls;
     requires java.desktop;
     requires io.vavr;
     requires com.fasterxml.jackson.annotation;
