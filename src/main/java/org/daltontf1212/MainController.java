@@ -171,9 +171,12 @@ public class MainController {
     public void doAddVideoFile(ActionEvent event) {
         List<File> chosen = lazyFileChooser.get().showOpenMultipleDialog(stage);
         if (chosen != null) {
-            files.getItems().addAll(chosen);
-            lazyFileChooser.get().setInitialDirectory(chosen.get(chosen.size() - 1).getParentFile());
-            projectDirty.setValue(true);
+            List<File> notDup = chosen.stream().filter(it -> !files.getItems().contains(it)).toList();
+            if (!notDup.isEmpty()) {
+                files.getItems().addAll(notDup);
+                lazyFileChooser.get().setInitialDirectory(chosen.get(chosen.size() - 1).getParentFile());
+                projectDirty.setValue(true);
+            }
         }
     }
 
@@ -263,6 +266,7 @@ public class MainController {
 
     @FXML
     public void doGenerateVideo(ActionEvent event) {
+        embeddedMediaPlayer.controls().stop();
         selectVideoFiles(stage)
             .flatMap(files -> selectClipsDialog(stage, files))
             .ifPresent(clips -> generateVideo(stage, clips));
@@ -376,6 +380,7 @@ public class MainController {
         editingClip.setValue(null);
 
         playSlider.setValue(embeddedMediaPlayer.status().time() / 1000.0);
+        playSlider.requestFocus();
         resetViewport();
     }
 
@@ -728,6 +733,11 @@ public class MainController {
 
             listCell.setOnMouseClicked(event -> {
                 if (event.getClickCount() > 1) {
+                    if (!playMode.get() && clipDirty.get()) {
+                        if (saveOrDiscardClip(event, "Do wish add/update the edited clip?") == ButtonType.CANCEL) {
+                            return;
+                        }
+                    }
                     if (!playFile(listCell.getItem())) {
                         files.getItems().remove(listCell.getItem());
                     }
@@ -1244,7 +1254,7 @@ public class MainController {
         new Thread(task).start();
     }
 
-    private void saveProjectFile(File file) {
+    protected void saveProjectFile(File file) {
         ObjectMapper mapper = new ObjectMapper();
 
         try (Writer writer = new BufferedWriter(new FileWriter(file))) {
