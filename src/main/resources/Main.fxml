@@ -5,7 +5,7 @@
 <?import javafx.scene.layout.*?>
 <?import org.controlsfx.control.RangeSlider?>
 
-<VBox xmlns:fx="http://javafx.com/fxml" fx:controller="org.daltontf1212.MainController">
+<VBox xmlns:fx="http://javafx.com/fxml" fx:controller="io.github.daltontf.MainController">
     <MenuBar>
         <Menu text="File">
             <MenuItem text="Add Video(s)" fx:id="addVideoFile" onAction="#doAddVideoFile"/>

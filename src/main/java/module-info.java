@@ -1,4 +1,4 @@
-module org.daltontf1212 {
+module io.github.daltontf {
     requires uk.co.caprica.vlcj;
     requires uk.co.caprica.vlcj.javafx;
     requires javafx.graphics;
@@ -14,6 +14,4 @@ module org.daltontf1212 {
     requires org.slf4j;
     requires org.slf4j.simple;
     requires commons.math3;
-
-    opens org.daltontf1212;
 }

@@ -1,4 +1,4 @@
-package org.daltontf1212;
+package io.github.daltontf;
 
 import javafx.application.Application;
 import javafx.fxml.FXMLLoader;

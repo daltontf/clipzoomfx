@@ -1,4 +1,4 @@
-package org.daltontf1212;
+package io.github.daltontf;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
