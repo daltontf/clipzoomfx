@@ -13,7 +13,7 @@
     <packaging>jar</packaging>
 
     <properties>
-        <openjfx-version>18.0.2</openjfx-version>
+        <openjfx-version>19</openjfx-version>
     </properties>
 
     <dependencies>
@@ -35,17 +35,17 @@
         <dependency>
             <groupId>uk.co.caprica</groupId>
             <artifactId>vlcj</artifactId>
-            <version>4.7.3</version>
+            <version>4.8.2</version>
         </dependency>
         <dependency>
             <groupId>uk.co.caprica</groupId>
             <artifactId>vlcj-javafx</artifactId>
-            <version>1.1.0</version>
+            <version>1.2.0</version>
         </dependency>
         <dependency>
             <groupId>org.controlsfx</groupId>
             <artifactId>controlsfx</artifactId>
-            <version>11.1.1</version>
+            <version>11.1.2</version>
         </dependency>
         <dependency>
             <groupId>io.vavr</groupId>

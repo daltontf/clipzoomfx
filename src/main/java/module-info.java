@@ -14,4 +14,6 @@ module io.github.daltontf {
     requires org.slf4j;
     requires org.slf4j.simple;
     requires commons.math3;
+
+    opens io.github.daltontf;
 }
