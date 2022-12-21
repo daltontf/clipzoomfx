@@ -1,12 +1,12 @@
 package io.github.daltontf;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationContext;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.fasterxml.jackson.databind.deser.std.StdDeserializer;
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.github.kokorin.jaffree.StreamType;
@@ -394,10 +394,10 @@ public class MainController {
                 clipDescription.map(ClipDescriptionData::getLabel).orElse(null),
                 clipDescription.map(ClipDescriptionData::getDescription).orElse(null),
                 clipDescription.map(ClipDescriptionData::getRating).orElse(null),
-                rangeSlider.getMin() * 1000.0,
-                rangeSlider.getLowValue() * 1000.0,
-                rangeSlider.getHighValue() * 1000.0,
-                rangeSlider.getMax() * 1000.0,
+                Precision.round(rangeSlider.getMin() * 1000.0, 2),
+                Precision.round(rangeSlider.getLowValue() * 1000.0, 2),
+                Precision.round(rangeSlider.getHighValue() * 1000.0, 2),
+                Precision.round(rangeSlider.getMax() * 1000.0, 2),
                 videoImageView.getViewport()
         );
         List<Clip> items = fileToClips.computeIfAbsent(newClip.file, file -> new ArrayList<>());
@@ -545,7 +545,10 @@ public class MainController {
     @FXML
     public void doSortClips(ActionEvent event) {
         projectDirty.setValue(true);
-        clips.getItems().sort(Comparator.comparing(Clip::label));
+        clips.getItems().sort(Comparator.comparing(Clip::labelRepresentation));
+        if (!clips.getItems().isEmpty()) {
+            fileToClips.put(clips.getItems().get(0).file, clips.getItems());
+        }
     }
 
     @FXML
@@ -750,7 +753,7 @@ public class MainController {
     private void initializeClipsTable() {
         clips.getSelectionModel().setSelectionMode(SelectionMode.SINGLE);
         clips.getColumns().addAll(
-                createClipNameColumn(row -> new SimpleStringProperty(row.getValue().label())),
+                createClipNameColumn(row -> new SimpleStringProperty(row.getValue().labelRepresentation())),
                 createClipRatingColumn(row -> new SimpleObjectProperty<>(row.getValue().rating)));
 
         clips.setRowFactory(listView -> {
@@ -761,7 +764,7 @@ public class MainController {
                 protected void updateItem(Clip clip, boolean empty) {
                     super.updateItem(clip, empty);
                     setTooltip(tooltip);
-                    tooltip.setText(clip != null ? clip.label() : null);
+                    tooltip.setText(clip != null ? clip.labelRepresentation() : null);
                 }
             };
 
@@ -1040,7 +1043,7 @@ public class MainController {
         fileCol.setCellValueFactory(row -> new SimpleStringProperty(row.getValue().data.file.getName()));
 
         TableColumn<SelectableData<Clip>, String> nameCol = createClipNameColumn(
-                row -> new SimpleStringProperty(row.getValue().data.label()));
+                row -> new SimpleStringProperty(row.getValue().data.labelRepresentation()));
         TableColumn<SelectableData<Clip>, Integer> ratingCol = createClipRatingColumn(
                 row -> new SimpleObjectProperty<>(row.getValue().data.rating));
 
@@ -1288,7 +1291,7 @@ public class MainController {
         rangeSlider.setLowValue(lowValue / 1000.0);
         rangeSlider.setHighValue(highValue / 1000.0);
 
-        this.clipDescription = editingClip.map(clip -> new ClipDescriptionData(clip.label(), clip.description, clip.rating));
+        this.clipDescription = editingClip.map(clip -> new ClipDescriptionData(clip.labelRepresentation(), clip.description, clip.rating));
 
         this.editingClip.set(editingClip.orElse(null));
     }
@@ -1365,41 +1368,20 @@ public class MainController {
         }
     }
 
-    public static class Clip {
-        public final File file;
-        public final String label;
-        public final String description;
-        public final Integer rating;
-        public final double minValue;
-        public final double lowValue;
-        public final double highValue;
-        public final double maxValue;
-        public final Rectangle2D viewportRect;
-
-        @JsonCreator
-        public Clip(
+    @JsonSerialize
+    public record Clip(
             @JsonProperty("file") File file,
-            @JsonProperty("title") String label,
+            @JsonProperty("label") String label,
             @JsonProperty("description") String description,
             @JsonProperty("rating") Integer rating,
             @JsonProperty("minValue") double minValue,
             @JsonProperty("lowValue") double lowValue,
             @JsonProperty("highValue") double highValue,
             @JsonProperty("maxValue") double maxValue,
-            @JsonProperty("viewportRect") Rectangle2D viewportRect) {
-            this.file = file;
-            this.label = label;
-            this.description = description;
-            this.rating = rating;
-            this.minValue = Precision.round(minValue, 2);
-            this.lowValue = Precision.round(lowValue, 2);
+            @JsonProperty("viewportRect") Rectangle2D viewportRect
+        ) {
 
-            this.highValue = Precision.round(highValue, 2);
-            this.maxValue = Precision.round(maxValue, 2);
-            this.viewportRect = viewportRect;
-        }
-
-        public String label() {
+        public String labelRepresentation() {
             if (label != null) {
                 return label;
             } else {
@@ -1410,7 +1392,7 @@ public class MainController {
 
         public String itemRepresentation() {
             return file.getName().replaceFirst("[.][^.]+$", "") +
-                    "_" + label();
+                    "_" + labelRepresentation();
         }
     }
 
